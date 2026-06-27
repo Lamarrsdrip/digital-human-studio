@@ -3,6 +3,7 @@
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   user: null,
+  token: localStorage.getItem('dhs_token') || null,
   page: 'login',
   pendingPage: null,
   digitalHumans: [],
@@ -16,15 +17,23 @@ function uid() { return state.user?.id || ''; }
 
 // ── API helper ─────────────────────────────────────────────────────────────
 function api(path, opts = {}) {
-  return fetch(path, {
-    ...opts,
-    headers: { 'content-type': 'application/json', 'x-user-id': uid(), ...(opts.headers || {}) },
-  }).then(r => r.text().then(text => {
-    let d;
-    try { d = JSON.parse(text); } catch { throw new Error('Server returned unexpected response. Try again.'); }
-    if (d.error) throw new Error(d.error);
-    return d;
-  }));
+  const headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  if (state.user?.id) headers['x-user-id'] = state.user.id;
+  return fetch(path, { ...opts, headers })
+    .then(async r => {
+      if (r.status === 401) {
+        state.user = null; state.token = null;
+        localStorage.removeItem('dhs_token');
+        render();
+        throw new Error('Session expired. Please sign in again.');
+      }
+      const text = await r.text();
+      let d;
+      try { d = JSON.parse(text); } catch { throw new Error('Server returned unexpected response. Try again.'); }
+      if (d.error) throw new Error(d.error);
+      return d;
+    });
 }
 
 function uploadFile(path, file, extraFields = {}) {
@@ -109,7 +118,8 @@ function bindHomepage() {
 
   // New 2026 homepage CTAs
   tryBind('hero-camera-btn', () => goToPage('create-twin'));
-  tryBind('hero-upload-btn', () => goToPage('create-human'));
+  tryBind('hero-twin-btn', () => goToPage('create-twin'));
+  tryBind('hero-upload-btn', () => goToPage('create-fictional'));
   tryBind('hero-fictional-btn', () => goToPage('create-fictional'));
   tryBind('cta-camera-btn', () => goToPage('create-twin'));
   tryBind('cta-login-btn', () => showAuthForm('dashboard'));
@@ -183,8 +193,9 @@ function bindAuth(redirectPage = 'dashboard') {
       const btn = document.getElementById('login-btn');
       btn.disabled = true; btn.textContent = 'Signing in…';
       try {
-        const { user } = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: document.getElementById('login-email').value, password: document.getElementById('login-password').value }) });
-        state.user = user;
+        const res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: document.getElementById('login-email').value, password: document.getElementById('login-password').value }) });
+        if (res.token) { state.token = res.token; localStorage.setItem('dhs_token', res.token); }
+        state.user = res.user;
         navigate(state.pendingPage || redirectPage || 'dashboard');
         state.pendingPage = null;
       } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Sign In'; }
@@ -194,8 +205,9 @@ function bindAuth(redirectPage = 'dashboard') {
       const btn = document.getElementById('signup-btn');
       btn.disabled = true; btn.textContent = 'Creating…';
       try {
-        const { user } = await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name: document.getElementById('signup-name').value, email: document.getElementById('signup-email').value, password: document.getElementById('signup-password').value }) });
-        state.user = user;
+        const res = await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name: document.getElementById('signup-name').value, email: document.getElementById('signup-email').value, password: document.getElementById('signup-password').value }) });
+        if (res.token) { state.token = res.token; localStorage.setItem('dhs_token', res.token); }
+        state.user = res.user;
         navigate(state.pendingPage || redirectPage || 'dashboard');
         state.pendingPage = null;
       } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Create Account'; }
@@ -223,6 +235,7 @@ const NAV_ITEMS = [
   { id: 'workers',          icon: '⚙️', label: 'Worker Status',        section: null },
   { id: 'credits',          icon: '💳', label: 'Credits & Billing',    section: 'ACCOUNT' },
   { id: 'profile',          icon: '👤', label: 'My Profile',           section: null },
+  { id: 'settings',         icon: '⚙️', label: 'Settings',             section: 'ACCOUNT' },
   { id: 'admin',            icon: '🛡️', label: 'Admin Panel',          section: null, adminOnly: true },
 ];
 
@@ -305,7 +318,7 @@ function getPageTitle() {
     'create-fictional': 'Generate AI Human', 'view-human': 'Digital Human',
     generate: 'Generate Video', 'ai-ads': 'AI Ad Videos', 'ai-presenter': 'AI Presenter',
     'ai-influencer': 'AI Influencer', jobs: 'Video Jobs', 'api-keys': 'API Keys',
-    workers: 'Worker Status', credits: 'Credits & Billing', profile: 'My Profile', admin: 'Admin Panel',
+    workers: 'Worker Status', credits: 'Credits & Billing', profile: 'My Profile', settings: 'Settings', admin: 'Admin Panel',
   };
   return titles[state.page] || 'Digital Human OS';
 }
@@ -330,7 +343,7 @@ function _shellClickHandler(e) {
   const pageEl = e.target.closest('[data-page]');
   if (pageEl) { navigate(pageEl.dataset.page); return; }
   if (e.target.id === 'logout-btn') {
-    state.user = null;
+    state.user = null; state.token = null; localStorage.removeItem('dhs_token');
     const hp = document.getElementById('homepage');
     const shell = document.getElementById('app-shell');
     if (hp) hp.style.display = '';
@@ -348,7 +361,7 @@ function renderPage() {
     'view-human': pageViewHuman,
     generate: pageGenerate, 'ai-ads': pageAIAds, 'ai-presenter': pageAIPresenter,
     'ai-influencer': pageAIInfluencer, jobs: pageJobs, 'api-keys': pageAPIKeys,
-    workers: pageWorkers, credits: pageCredits, profile: pageProfile, admin: pageAdmin,
+    workers: pageWorkers, credits: pageCredits, profile: pageProfile, settings: pageSettings, admin: pageAdmin,
   };
   const fn = pages[state.page];
   if (fn) fn(el);
@@ -947,19 +960,87 @@ async function pageAIAds(el) {
 
 // ── AI Presenter / Influencer ──────────────────────────────────────────────
 async function pageAIPresenter(el) {
-  el.innerHTML = `<div class="section-title mb-2">AI Presenter</div><div class="section-sub">Generate professional presenter videos from scripts, slides, or articles</div>
-<div class="grid-2">
-  <div class="card"><div style="font-size:2rem;margin-bottom:12px">📄</div><div class="font-bold mb-2">Script to Presenter</div><p class="text-muted text-sm mb-3">Type or paste a script and generate a presenter video</p><button class="btn btn-primary" data-page="generate">Go to Generator</button></div>
-  <div class="card"><div style="font-size:2rem;margin-bottom:12px">🔮</div><div class="font-bold mb-2">Coming in Phase 2</div><p class="text-muted text-sm mb-3">PDF/Slides to presenter, Blog to video, URL to video, Real-time teleprompter</p><div class="badge badge-yellow">Phase 2</div></div>
+  el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
+  try {
+    const { digitalHumans } = await api('/api/digital-humans');
+    if (!digitalHumans.length) { el.innerHTML = `<div class="card" style="text-align:center;padding:48px"><div style="font-size:2.5rem;margin-bottom:16px">🎤</div><h3>No Digital Humans Yet</h3><p class="text-muted mb-4">Create a digital human first.</p><button class="btn btn-primary btn-lg" data-page="create-human">Create Digital Human</button></div>`; return; }
+    el.innerHTML = `
+<div class="section-title mb-2">AI Presenter</div>
+<div class="section-sub">Generate professional presenter videos with your digital human</div>
+<div class="card" style="max-width:680px">
+  <div class="form-group"><label>Digital Human</label>
+    <select id="pres-dh">${digitalHumans.map(dh=>`<option value="${dh.id}">${escHtml(dh.name)}</option>`).join('')}</select></div>
+  <div class="form-group"><label>Presentation Topic</label>
+    <input type="text" id="pres-topic" placeholder="e.g. Q4 Sales Results, Product Launch, Company Update"></div>
+  <div class="form-row">
+    <div class="form-group"><label>Duration</label>
+      <select id="pres-dur"><option value="30">30 sec</option><option value="60" selected>60 sec</option><option value="90">90 sec</option><option value="120">2 min</option></select></div>
+    <div class="form-group"><label>Tone</label>
+      <select id="pres-tone"><option value="professional">Professional</option><option value="educational">Educational</option><option value="casual">Casual</option><option value="motivational">Motivational</option></select></div>
+  </div>
+  <div class="form-group"><label>Script <span>(optional — leave blank to auto-generate)</span></label>
+    <textarea id="pres-script" rows="4" placeholder="Enter your presenter script or leave blank to auto-generate from the topic above"></textarea></div>
+  <button class="btn btn-primary btn-lg" id="pres-submit">🎤 Generate Presenter Video (8 cr)</button>
+  <div id="pres-status" style="margin-top:12px"></div>
 </div>`;
+    document.getElementById('pres-submit')?.addEventListener('click', async () => {
+      const dhId = document.getElementById('pres-dh')?.value;
+      const topic = document.getElementById('pres-topic')?.value.trim();
+      const script = document.getElementById('pres-script')?.value.trim();
+      if (!dhId || !topic) { toast('Select a digital human and enter a topic.', 'error'); return; }
+      const btn = document.getElementById('pres-submit');
+      btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        await api('/api/videos/generate', { method: 'POST', body: JSON.stringify({ digitalHumanId: dhId, mode: 'presenter', script, prompt: topic, durationSec: Number(document.getElementById('pres-dur')?.value||60), tone: document.getElementById('pres-tone')?.value||'professional' }) });
+        toast('Presenter job queued! Redirecting…', 'success');
+        setTimeout(() => navigate('jobs'), 1200);
+      } catch(e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = '🎤 Generate Presenter Video (8 cr)'; }
+    });
+  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
 
 async function pageAIInfluencer(el) {
-  el.innerHTML = `<div class="section-title mb-2">AI Influencer</div><div class="section-sub">Create authentic social media content with your digital human</div>
-<div class="grid-2">
-  <div class="card"><div style="font-size:2rem;margin-bottom:12px">📱</div><div class="font-bold mb-2">TikTok/Reels Style</div><p class="text-muted text-sm mb-3">Generate trending social content in portrait format</p><button class="btn btn-primary" data-page="generate">Generate Now</button></div>
-  <div class="card"><div style="font-size:2rem;margin-bottom:12px">🔮</div><div class="font-bold mb-2">Phase 2 Features</div><p class="text-muted text-sm mb-3">Trend-aware content, auto hashtags, scheduling, engagement hooks</p><div class="badge badge-yellow">Phase 2</div></div>
+  el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
+  try {
+    const { digitalHumans } = await api('/api/digital-humans');
+    if (!digitalHumans.length) { el.innerHTML = `<div class="card" style="text-align:center;padding:48px"><div style="font-size:2.5rem;margin-bottom:16px">⭐</div><h3>No Digital Humans Yet</h3><p class="text-muted mb-4">Create a digital human first.</p><button class="btn btn-primary btn-lg" data-page="create-human">Create Digital Human</button></div>`; return; }
+    el.innerHTML = `
+<div class="section-title mb-2">AI Influencer</div>
+<div class="section-sub">Create authentic social media content with your digital human</div>
+<div class="card" style="max-width:680px">
+  <div class="form-group"><label>Digital Human</label>
+    <select id="inf-dh">${digitalHumans.map(dh=>`<option value="${dh.id}">${escHtml(dh.name)}</option>`).join('')}</select></div>
+  <div class="form-row">
+    <div class="form-group"><label>Platform</label>
+      <select id="inf-platform"><option value="tiktok">TikTok</option><option value="reels">Instagram Reels</option><option value="shorts">YouTube Shorts</option></select></div>
+    <div class="form-group"><label>Content Category</label>
+      <select id="inf-cat"><option value="lifestyle">Lifestyle</option><option value="business">Business</option><option value="education">Education</option><option value="fitness">Fitness</option><option value="fashion">Fashion</option><option value="food">Food</option></select></div>
+  </div>
+  <div class="form-group"><label>Hook / Trend</label>
+    <input type="text" id="inf-hook" placeholder="e.g. POV: You just discovered..., Things I wish I knew..."></div>
+  <div class="form-group"><label>Content Topic</label>
+    <textarea id="inf-topic" rows="3" placeholder="What is this video about? What value does it deliver?"></textarea></div>
+  <div class="form-group"><label>Tone</label>
+    <select id="inf-tone"><option value="energetic">High Energy</option><option value="casual">Casual</option><option value="motivational">Motivational</option><option value="educational">Educational</option></select></div>
+  <button class="btn btn-primary btn-lg" id="inf-submit">⭐ Generate Influencer Video (8 cr)</button>
+  <div id="inf-status" style="margin-top:12px"></div>
 </div>`;
+    document.getElementById('inf-submit')?.addEventListener('click', async () => {
+      const dhId = document.getElementById('inf-dh')?.value;
+      const hook = document.getElementById('inf-hook')?.value.trim();
+      const topic = document.getElementById('inf-topic')?.value.trim();
+      if (!dhId || !topic) { toast('Select a digital human and enter the topic.', 'error'); return; }
+      const platform = document.getElementById('inf-platform')?.value;
+      const btn = document.getElementById('inf-submit');
+      btn.disabled = true; btn.textContent = 'Submitting…';
+      const prompt = `${hook ? hook + '. ' : ''}${topic} (${platform} style, ${document.getElementById('inf-cat')?.value} category)`;
+      try {
+        await api('/api/videos/generate', { method: 'POST', body: JSON.stringify({ digitalHumanId: dhId, mode: 'influencer', prompt, durationSec: 30, tone: document.getElementById('inf-tone')?.value||'energetic', outputW: 1080, outputH: 1920 }) });
+        toast('Influencer video queued! Redirecting…', 'success');
+        setTimeout(() => navigate('jobs'), 1200);
+      } catch(e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = '⭐ Generate Influencer Video (8 cr)'; }
+    });
+  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
@@ -1867,6 +1948,160 @@ function pageCreateFictional(el) {
   });
 }
 
+// ── Settings ───────────────────────────────────────────────────────────────────
+async function pageSettings(el) {
+  el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
+  try {
+    const { settings } = await api('/api/settings');
+    const get = (key) => settings.find(s => s.key === key)?.value || '';
+
+    el.innerHTML = `
+<div class="section-title mb-6">Settings</div>
+
+<div class="settings-section">
+  <div class="settings-section-title">AI Provider</div>
+  <div class="settings-row">
+    <div class="settings-label">Runtime Mode</div>
+    <div class="settings-input">
+      <select id="set-runtime" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
+        <option value="local" ${get('AI_RUNTIME_MODE')==='local'?'selected':''}>Local (Free, requires workers)</option>
+        <option value="hybrid" ${get('AI_RUNTIME_MODE')==='hybrid'?'selected':''}>Hybrid (Local + Cloud fallback)</option>
+        <option value="cloud" ${get('AI_RUNTIME_MODE')==='cloud'?'selected':''}>Cloud (Fastest, requires API keys)</option>
+      </select>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">TTS Provider</div>
+    <div class="settings-input">
+      <select id="set-tts" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
+        <option value="piper" ${get('TTS_PROVIDER')==='piper'?'selected':''}>Piper (Local, free)</option>
+        <option value="elevenlabs" ${get('TTS_PROVIDER')==='elevenlabs'?'selected':''}>ElevenLabs (Cloud, high quality)</option>
+        <option value="system" ${get('TTS_PROVIDER')==='system'?'selected':''}>System TTS (macOS say command)</option>
+      </select>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">Lipsync Provider</div>
+    <div class="settings-input">
+      <select id="set-lipsync" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
+        <option value="wav2lip" ${get('LIPSYNC_PROVIDER')==='wav2lip'?'selected':''}>Wav2Lip (Local, requires setup)</option>
+        <option value="sadtalker" ${get('LIPSYNC_PROVIDER')==='sadtalker'?'selected':''}>SadTalker (Local, higher quality)</option>
+        <option value="muapi" ${get('LIPSYNC_PROVIDER')==='muapi'?'selected':''}>Muapi (Cloud)</option>
+        <option value="static" ${get('LIPSYNC_PROVIDER')==='static'?'selected':''}>Static (No lipsync, just audio over image)</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="settings-section">
+  <div class="settings-section-title">API Keys</div>
+  <div class="settings-row">
+    <div class="settings-label">Gemini AI Key</div>
+    <div class="settings-input">
+      <input type="password" id="set-gemini" value="${escHtml(get('GEMINI_API_KEY'))}" placeholder="AIza...">
+      <div class="settings-hint">Get your free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> · Model: gemini-2.5-flash-lite</div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">ElevenLabs Key</div>
+    <div class="settings-input">
+      <input type="password" id="set-elevenlabs" value="${escHtml(get('VOICE_API_KEY'))}" placeholder="sk-...">
+      <div class="settings-hint">Required for ElevenLabs TTS provider</div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label"></div>
+    <div class="settings-input">
+      <button class="btn btn-ghost btn-sm" id="test-gemini-btn">Test Gemini Connection</button>
+      <span id="gemini-test-result" style="margin-left:10px;font-size:.8rem;color:var(--text3)"></span>
+    </div>
+  </div>
+</div>
+
+<div class="settings-section">
+  <div class="settings-section-title">Paths</div>
+  <div class="settings-row">
+    <div class="settings-label">FFmpeg Path</div>
+    <div class="settings-input">
+      <input type="text" id="set-ffmpeg" value="${escHtml(get('FFMPEG_PATH')||'ffmpeg')}" placeholder="ffmpeg">
+      <div class="settings-hint">Full path to ffmpeg binary, or just "ffmpeg" if in PATH</div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">Wav2Lip Path</div>
+    <div class="settings-input">
+      <input type="text" id="set-wav2lip" value="${escHtml(get('WAV2LIP_PATH'))}" placeholder="/path/to/Wav2Lip">
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;margin-bottom:32px">
+  <button class="btn btn-primary" id="save-settings-btn">Save Settings</button>
+  <div id="settings-save-status" style="display:flex;align-items:center;font-size:.85rem;color:var(--text3)"></div>
+</div>
+
+<div class="settings-section" style="border-top:1px solid rgba(239,68,68,.2);padding-top:24px">
+  <div class="settings-section-title" style="color:var(--red)">Danger Zone</div>
+  <div class="settings-row">
+    <div class="settings-label">Reset Settings</div>
+    <div class="settings-input">
+      <button class="btn btn-danger btn-sm" id="reset-settings-btn">Reset to Defaults</button>
+      <div class="settings-hint">Resets all provider settings. API keys will be cleared.</div>
+    </div>
+  </div>
+</div>`;
+
+    document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('save-settings-btn');
+      const status = document.getElementById('settings-save-status');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const settingsList = [
+          { key: 'AI_RUNTIME_MODE', value: document.getElementById('set-runtime')?.value },
+          { key: 'TTS_PROVIDER', value: document.getElementById('set-tts')?.value },
+          { key: 'LIPSYNC_PROVIDER', value: document.getElementById('set-lipsync')?.value },
+          { key: 'GEMINI_API_KEY', value: document.getElementById('set-gemini')?.value },
+          { key: 'VOICE_API_KEY', value: document.getElementById('set-elevenlabs')?.value },
+          { key: 'WAV2LIP_PATH', value: document.getElementById('set-wav2lip')?.value },
+        ];
+        await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: settingsList }) });
+        status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
+        toast('Settings saved!', 'success');
+      } catch(e) { toast(e.message, 'error'); status.textContent = '❌ ' + e.message; status.style.color = 'var(--red)'; }
+      btn.disabled = false; btn.textContent = 'Save Settings';
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    });
+
+    document.getElementById('test-gemini-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('test-gemini-btn');
+      const result = document.getElementById('gemini-test-result');
+      btn.disabled = true; result.textContent = 'Testing…'; result.style.color = 'var(--text3)';
+      try {
+        const d = await api('/api/settings/test-gemini', { method: 'POST' });
+        result.textContent = d.ok ? `✅ ${d.message}` : `❌ ${d.message}`;
+        result.style.color = d.ok ? 'var(--green)' : 'var(--red)';
+      } catch(e) { result.textContent = '❌ ' + e.message; result.style.color = 'var(--red)'; }
+      btn.disabled = false;
+    });
+
+    document.getElementById('reset-settings-btn')?.addEventListener('click', async () => {
+      if (!confirm('Reset all settings to defaults? API keys will be cleared.')) return;
+      const defaults = [
+        { key: 'AI_RUNTIME_MODE', value: 'hybrid' },
+        { key: 'TTS_PROVIDER', value: 'piper' },
+        { key: 'LIPSYNC_PROVIDER', value: 'wav2lip' },
+        { key: 'GEMINI_API_KEY', value: '' },
+        { key: 'VOICE_API_KEY', value: '' },
+      ];
+      try {
+        await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: defaults }) });
+        toast('Settings reset to defaults.', 'success');
+        pageSettings(el);
+      } catch(e) { toast(e.message, 'error'); }
+    });
+  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
+}
+
 // ── Utils ──────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1876,4 +2111,14 @@ function escHtml(str) {
 if (!document.getElementById('toasts')) {
   const t = document.createElement('div'); t.id = 'toasts'; document.body.appendChild(t);
 }
-render();
+
+async function restoreSession() {
+  if (!state.token) return;
+  try {
+    const r = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${state.token}` } });
+    if (r.ok) { const d = await r.json(); state.user = d.user; }
+    else { state.token = null; localStorage.removeItem('dhs_token'); }
+  } catch { state.token = null; }
+}
+
+restoreSession().then(() => render());

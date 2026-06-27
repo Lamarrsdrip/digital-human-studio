@@ -9,8 +9,7 @@ import fs, { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from
 import path, { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { createHash, randomBytes } from 'crypto';
-import { randomUUID } from 'crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'crypto';
 import Busboy from 'busboy';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -109,10 +108,44 @@ function sha256(str) {
 
 function hashPassword(pw) { return sha256('dhs:' + pw); }
 
+// ─── JWT Auth ─────────────────────────────────────────────────────────────────
+const JWT_SECRET = process.env.JWT_SECRET || 'dhs-jwt-secret-2026-change-in-production';
+
+function signToken(payload) {
+  const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+  const body = Buffer.from(JSON.stringify({...payload, iat: Date.now()})).toString('base64url');
+  const sig = createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, body, sig] = parts;
+  const expected = createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+  if (sig !== expected) return null;
+  try { return JSON.parse(Buffer.from(body, 'base64url').toString()); }
+  catch { return null; }
+}
+
 function currentUser(req, db) {
+  // Support JWT Bearer token (new)
+  const auth = req.headers['authorization'] || '';
+  if (auth.startsWith('Bearer ')) {
+    const payload = verifyToken(auth.slice(7));
+    if (payload?.userId) return db.users.find(u => u.id === payload.userId) || null;
+  }
+  // Legacy x-user-id support (keep for backwards compat during transition)
   const uid = (req.headers['x-user-id'] || '').trim();
-  if (!uid) return null;
-  return db.users.find(u => u.id === uid) || null;
+  if (uid) return db.users.find(u => u.id === uid) || null;
+  // API key auth
+  const apiKey = req.headers['x-api-key'] || '';
+  if (apiKey) {
+    const key = db.apiKeys?.find(k => k.key === apiKey);
+    if (key) return db.users.find(u => u.id === key.userId) || null;
+  }
+  return null;
 }
 
 function requireUser(req, db) {
@@ -432,19 +465,24 @@ Topic/Prompt: ${prompt}
 Format: Spoken words only, natural pauses. No stage directions.`;
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`, {
+    const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${geminiKey}` },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'gemini-2.5-flash-lite',
-        messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 400, temperature: 0.7,
+        contents: [{ parts: [{ text: sysPrompt + '\n\n' + userPrompt }] }],
+        generationConfig: { maxOutputTokens: 600, temperature: 0.8 },
       }),
       signal: AbortSignal.timeout(30_000),
     });
-    const d = await res.json();
-    return d.choices?.[0]?.message?.content?.trim() || prompt;
-  } catch {
+    if (gRes.status === 429) throw new Error('Gemini API quota exceeded. Please wait a moment and retry, or add a valid GEMINI_API_KEY in Settings.');
+    if (gRes.status === 400) {
+      const errData = await gRes.json();
+      throw new Error(`Gemini API error: ${errData?.error?.message || 'Bad request'}`);
+    }
+    const d = await gRes.json();
+    return d?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || prompt;
+  } catch(e) {
+    console.warn('[gemini:error]', e.message);
     return prompt;
   }
 }
@@ -753,7 +791,8 @@ async function handleAPI(req, res, pathname) {
     };
     db.users.push(user);
     saveDb(db);
-    return json(res, 200, { user: publicUser(user) });
+    const token = signToken({ userId: user.id, role: user.role });
+    return json(res, 201, { user: publicUser(user), token });
   }
 
   if (pathname === '/api/auth/login' && method === 'POST') {
@@ -762,7 +801,8 @@ async function handleAPI(req, res, pathname) {
     const password = String(body.password || '').trim();
     const user = db.users.find(u => u.email === email);
     if (!user || user.passwordHash !== hashPassword(password)) throw new Error('Invalid email or password.');
-    return json(res, 200, { user: publicUser(user) });
+    const token = signToken({ userId: user.id, role: user.role });
+    return json(res, 200, { user: publicUser(user), token });
   }
 
   if (pathname === '/api/auth/me' && method === 'GET') {
@@ -1260,6 +1300,50 @@ async function handleAPI(req, res, pathname) {
     return json(res, 200, { ok: true });
   }
 
+  // ── Settings (user-facing, not just admin) ────────────────────────────────
+  if (pathname === '/api/settings' && method === 'GET') {
+    requireUser(req, db);
+    const masked = db.settings.map(s => {
+      const secret = ['GEMINI_API_KEY','VOICE_API_KEY','MUAPI_API_KEY'].includes(s.key);
+      const val = secret && s.value && s.value.length > 4 ? s.value.slice(0, 4) + '...' : s.value;
+      return { key: s.key, value: val };
+    });
+    return json(res, 200, { settings: masked });
+  }
+
+  if (pathname === '/api/settings' && method === 'PATCH') {
+    requireUser(req, db);
+    const body = await readJson(req);
+    for (const { key, value } of (body.settings || [])) {
+      const s = db.settings.find(s => s.key === key);
+      if (s) s.value = String(value);
+      else db.settings.push({ key, value: String(value) });
+    }
+    saveDb(db);
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/settings/test-gemini' && method === 'POST') {
+    requireUser(req, db);
+    const geminiKey = settingValue(db, 'GEMINI_API_KEY');
+    if (!geminiKey) return json(res, 200, { ok: false, message: 'No Gemini API key configured. Add it in Settings.' });
+    try {
+      const res2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Say hello in 5 words.' }] }], generationConfig: { maxOutputTokens: 50, temperature: 0.5 } }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res2.status === 429) return json(res, 200, { ok: false, message: 'Quota exceeded. Try again later.' });
+      if (!res2.ok) { const e = await res2.json(); return json(res, 200, { ok: false, message: e?.error?.message || `HTTP ${res2.status}` }); }
+      const d = await res2.json();
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return json(res, 200, { ok: true, model: 'gemini-2.5-flash-lite', message: text.trim() });
+    } catch(e) {
+      return json(res, 200, { ok: false, message: e.message });
+    }
+  }
+
   // ── Setup check ───────────────────────────────────────────────────────────
   if (pathname === '/api/setup/check' && method === 'GET') {
     const ffmpegOk = await run(FFMPEG, ['-version'], { label: 'ffmpeg', timeoutMs: 5000 }).then(() => true).catch(() => false);
@@ -1274,7 +1358,7 @@ async function handleAPI(req, res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('access-control-allow-origin', '*');
-  res.setHeader('access-control-allow-headers', 'content-type, x-user-id, authorization');
+  res.setHeader('access-control-allow-headers', 'content-type, x-user-id, x-api-key, authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   const rawUrl = req.url || '/';

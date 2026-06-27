@@ -779,3 +779,66 @@ video { width: 100%; display: block; }
   .qc-icon { font-size: 1.4rem; }
   .qc-label { font-size: .72rem; }
 }
+
+/* ── Settings page ── */
+.settings-section { margin-bottom: 32px; }
+.settings-section-title { font-size: .72rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.settings-row { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.settings-label { width: 180px; flex-shrink: 0; font-size: .85rem; font-weight: 600; color: var(--text2); padding-top: 11px; }
+.settings-input { flex: 1; }
+.settings-hint { font-size: .72rem; color: var(--text3); margin-top: 4px; }
+
+/* ── Twin wizard ── */
+.twin-wizard { max-width: 560px; margin: 0 auto; }
+.twin-progress { display: flex; gap: 8px; margin-bottom: 32px; justify-content: center; }
+.twin-progress-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); transition: all .3s; }
+.twin-progress-dot.done { background: var(--green); }
+.twin-progress-dot.active { background: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,252,.3); transform: scale(1.3); }
+.twin-camera-wrap { position: relative; border-radius: 20px; overflow: hidden; background: #000; aspect-ratio: 4/5; max-width: 360px; margin: 0 auto 20px; }
+.twin-video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
+.twin-oval-guide { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+.twin-oval { width: 60%; aspect-ratio: 3/4; border: 3px solid var(--accent); border-radius: 50%; transition: border-color .5s; box-shadow: 0 0 0 2000px rgba(0,0,0,.3); }
+.twin-oval.detected { border-color: var(--green); box-shadow: 0 0 20px rgba(34,197,94,.3), 0 0 0 2000px rgba(0,0,0,.3); }
+.twin-quality-bar { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(8px); padding: 10px 16px; display: flex; justify-content: center; gap: 24px; }
+.twin-quality-item { font-size: .7rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+.twin-quality-item.ok { color: var(--green); }
+.twin-quality-item.checking { color: var(--yellow); }
+.twin-record-overlay { position: absolute; top: 12px; right: 12px; background: var(--red); color: #fff; border-radius: 6px; padding: 4px 10px; font-size: .7rem; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.twin-record-overlay::before { content: '●'; animation: blink 1s step-end infinite; }
+.twin-instruction { text-align: center; font-size: 1rem; font-weight: 600; color: var(--text1); margin-bottom: 8px; }
+.twin-sub { text-align: center; font-size: .85rem; color: var(--text3); margin-bottom: 20px; }
+.twin-checkmarks { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+.twin-check { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
+.twin-check.done { color: var(--green); }
+.twin-check.pending { color: var(--text3); }
+
+/* ── Voice waveform (real audio) ── */
+.voice-sentence-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; font-size: 1.1rem; line-height: 1.7; color: var(--text1); text-align: center; }
+.voice-waveform { display: flex; gap: 4px; align-items: center; justify-content: center; height: 40px; margin: 16px 0; }
+.voice-waveform div { width: 5px; background: var(--accent2); border-radius: 3px; min-height: 4px; transition: height .05s; }
+
+/* ── Quality score ── */
+.quality-score-num { font-size: 4rem; font-weight: 900; background: linear-gradient(135deg, var(--accent2), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-align: center; margin: 16px 0 4px; }
+.quality-score-label { text-align: center; font-size: .8rem; color: var(--text3); margin-bottom: 24px; }
+.quality-check-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.quality-check-row:last-child { border-bottom: none; }
+
+/* ── Processing stages ── */
+.processing-stage { display: flex; align-items: center; gap: 12px; padding: 12px 0; font-size: .9rem; color: var(--text2); transition: color .3s; }
+.processing-stage.done { color: var(--green); }
+.processing-stage .stage-icon { font-size: 1.2rem; width: 24px; flex-shrink: 0; }
+.processing-stage .stage-spin { animation: spin .8s linear infinite; display: inline-block; }
+
+/* ── Fictional form layout ── */
+.fictional-layout { display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: start; }
+.fictional-preview-box { background: var(--bg3); border: 1px dashed var(--border2); border-radius: 20px; aspect-ratio: 3/4; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--text3); text-align: center; padding: 24px; position: sticky; top: 16px; }
+.fictional-preview-box .preview-icon { font-size: 3rem; margin-bottom: 8px; opacity: .4; }
+
+/* ── Mobile overrides for new components ── */
+@media (max-width: 768px) {
+  .fictional-layout { grid-template-columns: 1fr; }
+  .settings-row { flex-direction: column; }
+  .settings-label { width: auto; padding-top: 0; }
+  .twin-camera-wrap { max-width: 100%; }
+  .twin-oval { width: 65%; }
+}
