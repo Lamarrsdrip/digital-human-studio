@@ -69,6 +69,8 @@ a:hover { color: var(--accent3); }
 .topbar { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 0 28px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
 .topbar-title { font-size: 1rem; font-weight: 700; color: var(--text1); }
 .topbar-actions { display: flex; gap: 10px; align-items: center; }
+/* credit badge in topbar is hidden on desktop — sidebar shows it */
+.topbar-actions .credit-badge { display: none; }
 .page { flex: 1; padding: 28px; overflow-y: auto; }
 
 /* ── Cards / Sections ── */
@@ -254,95 +256,243 @@ video { width: 100%; display: block; }
 .table tr:last-child td { border-bottom: none; }
 .table tr:hover td { background: rgba(255,255,255,.02); }
 
-/* ── Mobile Responsive (everything ≤768px) ─────────────────── */
+/* ══════════════════════════════════════════════════
+   MOBILE — everything ≤768px
+   Layout: sticky top header + scrollable content + fixed bottom tab bar
+   ══════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  /* Shell — stack vertically, bottom nav */
-  .shell { flex-direction: column; }
 
+  /* ── Shell becomes column: topbar → content → bottom nav ── */
+  .shell { flex-direction: column; min-height: 100vh; }
+
+  /* ── Sidebar → fixed bottom tab bar ── */
   .sidebar {
     width: 100%; min-width: 0;
+    height: 62px;
+    position: fixed; bottom: 0; left: 0; right: 0; top: auto;
+    z-index: 900;
+    flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
-    order: 2;
-    position: fixed; bottom: 0; left: 0; right: 0;
-    z-index: 200;
+    background: rgba(17,17,24,.97);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     padding: 0;
-    flex-direction: row;
-    height: 58px;
-    overflow: hidden;
+    box-shadow: 0 -8px 32px rgba(0,0,0,.4);
   }
-  .sidebar-logo { display: none; }
+  .sidebar-logo  { display: none; }
+  .sidebar-footer { display: none; }
+
+  /* Nav items sit in a horizontal scrollable row */
   .sidebar-nav {
-    display: flex; flex-direction: row; overflow-x: auto;
-    padding: 0 4px; flex: 1; align-items: stretch;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1;
+    padding: 0;
+    align-items: stretch;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    gap: 0;
   }
   .sidebar-nav::-webkit-scrollbar { display: none; }
   .nav-section { display: none; }
+
   .nav-item {
-    flex-direction: column; gap: 2px; padding: 6px 12px;
-    font-size: .6rem; min-width: 60px; text-align: center;
-    border-left: none; border-top: 2px solid transparent;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px 4px 8px;
+    font-size: .62rem;
+    font-weight: 600;
+    min-width: 56px;
+    max-width: 80px;
+    border-left: none !important;
+    border-top: 2px solid transparent;
+    border-radius: 0;
+    color: var(--text3);
+    letter-spacing: 0;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .nav-item.active { border-left: none; border-top-color: var(--accent); }
-  .nav-item .icon { font-size: 1.3rem; }
-  .sidebar-footer { display: none; }
+  .nav-item:hover { background: rgba(255,255,255,.04); color: var(--text2); }
+  .nav-item.active {
+    border-left: none !important;
+    border-top: 2px solid var(--accent);
+    color: var(--accent3);
+    background: rgba(124,92,252,.08);
+  }
+  .nav-item .icon {
+    font-size: 1.35rem;
+    width: auto; height: auto;
+    opacity: 1;
+  }
+  .nav-item.active .icon { filter: drop-shadow(0 0 6px var(--accent)); }
 
-  .main { padding-bottom: 58px; }
-  .topbar { padding: 0 16px; height: 50px; }
-  .page { padding: 16px; }
+  /* ── Main area — full width, padded for bottom nav ── */
+  .main {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 70px; /* space for bottom nav */
+  }
 
-  /* Grids collapse to 1 or 2 col */
-  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-  .grid-2 { grid-template-columns: 1fr 1fr; }
-  .form-row { grid-template-columns: 1fr; }
-  .dh-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-  .health-grid { grid-template-columns: 1fr 1fr; }
-  .mode-grid { grid-template-columns: 1fr 1fr; }
-  .type-grid { grid-template-columns: 1fr 1fr; }
+  /* ── Topbar — compact header ── */
+  .topbar {
+    padding: 0 16px;
+    height: 52px;
+    position: sticky; top: 0;
+    z-index: 100;
+    background: rgba(17,17,24,.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .topbar-title { font-size: .95rem; }
+  .topbar-actions { gap: 8px; }
+  .topbar-actions .btn { padding: 7px 14px; font-size: .78rem; }
+  /* Show credits in topbar on mobile since sidebar-footer is hidden */
+  .topbar-actions .credit-badge { display: inline-flex; }
 
-  /* Cards */
-  .card { padding: 16px; }
-  .stat-value { font-size: 1.5rem; }
+  /* ── Page content ── */
+  .page { padding: 14px; }
 
-  /* Auth */
-  .auth-card { padding: 24px 20px; margin: 16px; }
+  /* ── Auth ── */
+  .auth-wrap { align-items: flex-start; padding-top: 40px; }
+  .auth-card { padding: 28px 20px; margin: 0 16px; border-radius: var(--radius); }
 
-  /* Tables — scroll horizontally */
-  .table { font-size: .75rem; }
-  .table th, .table td { padding: 8px 10px; }
+  /* ── Grids ── */
+  .grid-4 { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { grid-template-columns: 1fr; gap: 12px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-row { grid-template-columns: 1fr; gap: 0; }
+  .dh-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .health-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mode-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .type-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
-  /* Homepage */
-  .hp-nav { padding: 14px 16px; }
-  .hero { padding: 48px 16px 60px; }
-  .hero h1 { font-size: 2rem; letter-spacing: -.02em; }
-  .hero-sub { font-size: .95rem; }
-  .hero-demo { max-width: 260px; }
-  .features { padding: 48px 16px; }
-  .features-grid { grid-template-columns: 1fr; gap: 14px; }
-  .how { padding: 48px 16px; }
-  .usecases { padding: 48px 16px; }
-  .uc-grid { grid-template-columns: 1fr 1fr; }
-  .pricing { padding: 48px 16px; }
-  .plans { grid-template-columns: 1fr; }
-  .cta { padding: 60px 16px; }
-  .cta h2 { font-size: 1.7rem; }
-  .hero-actions { flex-direction: column; align-items: center; }
-  .btn-hero { width: 100%; max-width: 320px; }
+  /* ── Stat cards ── */
+  .stat-card { padding: 14px; }
+  .stat-value { font-size: 1.6rem; }
+  .stat-label { font-size: .68rem; }
 
-  /* Steps list on mobile */
-  .steps-list::before { left: 20px; }
-  .step-num { width: 40px; height: 40px; font-size: 1rem; }
+  /* ── Cards ── */
+  .card { padding: 14px; border-radius: var(--radius); }
+  .card-sm { padding: 12px; }
+  .section-title { font-size: 1rem; }
+  .section-sub { font-size: .8rem; }
 
-  /* DH generate page */
-  .fl-wrap { padding: 0; }
+  /* ── Buttons ── */
+  .btn-lg { padding: 11px 22px; font-size: .9rem; }
+
+  /* ── DH Cards ── */
+  .dh-card .dh-avatar { height: 120px; }
+  .dh-add-card { min-height: 180px; padding: 24px 12px; }
+
+  /* ── Steps wizard ── */
+  .steps { gap: 0; overflow-x: auto; padding-bottom: 4px; }
+  .step-label { display: none; }
+  .step-dot { width: 26px; height: 26px; font-size: .7rem; }
+  .step-line { min-width: 20px; }
+
+  /* ── Tables — horizontal scroll ── */
+  .card:has(.table) { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0; }
+  .table { min-width: 500px; font-size: .75rem; }
+  .table th, .table td { padding: 10px 12px; }
+
+  /* ── Job cards ── */
+  .job-card { padding: 12px 14px; }
+  .job-actions { flex-wrap: wrap; gap: 6px; }
+  .job-actions .btn { flex: 1; min-width: 80px; font-size: .75rem; }
+
+  /* ── Consent box ── */
+  .consent-box { padding: 14px; }
+
+  /* ── Upload zone ── */
+  .upload-zone { padding: 28px 16px; }
+
+  /* ── Empty state ── */
+  .empty-state { padding: 40px 16px; }
+  .empty-state .icon { font-size: 2.2rem; }
+
+  /* ── Toast ── */
+  #toasts { top: 60px; right: 12px; left: 12px; }
+  .toast { max-width: 100%; }
+
+  /* ── Worker health ── */
+  .health-item { padding: 10px 12px; }
+
+  /* ── Dashboard DH grid ── */
+  .dh-grid .dh-card .dh-card-body { padding: 10px; }
+  .dh-card-name { font-size: .82rem; }
+
+  /* ── Generate page: mode grid ── */
+  .mode-card { padding: 12px 8px; }
+  .mode-card .mode-icon { font-size: 1.4rem; }
+  .mode-card .mode-name { font-size: .72rem; }
+  .mode-card .mode-cost { font-size: .65rem; }
+
+  /* ── Video player ── */
+  .video-player-wrap { max-width: 100%; }
+
+  /* ── Misc spacing ── */
+  .mt-6 { margin-top: 16px; }
+  .mb-6 { margin-bottom: 16px; }
+
+  /* Header rows (title + action button) stay on one line */
+  .flex.items-center.justify-between {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+  .flex.items-center.justify-between .section-title { flex: 1; min-width: 0; }
+  .flex.items-center.justify-between .btn { flex-shrink: 0; }
 }
 
-@media (max-width: 420px) {
+/* ── Very small phones (≤400px) ── */
+@media (max-width: 400px) {
+  .grid-4 { grid-template-columns: 1fr 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
-  .uc-grid { grid-template-columns: 1fr; }
+  .type-grid { grid-template-columns: 1fr 1fr; }
   .dh-grid { grid-template-columns: 1fr 1fr; }
-  .hero h1 { font-size: 1.7rem; }
+  .auth-card { margin: 0 10px; }
+  .page { padding: 10px; }
+  .topbar-title { font-size: .85rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* ── Homepage mobile ── */
+@media (max-width: 768px) {
+  .hp-nav { padding: 12px 16px; }
+  .hp-nav-logo { font-size: .9rem; }
+  .hp-nav-actions .btn { padding: 7px 12px; font-size: .78rem; }
+
+  .hero { padding: 40px 16px 56px; }
+  .hero h1 { font-size: clamp(1.7rem, 8vw, 2.4rem); }
+  .hero-sub { font-size: .9rem; margin-bottom: 28px; }
+  .hero-actions { flex-direction: column; align-items: stretch; gap: 10px; padding: 0 8px; }
+  .btn-hero { width: 100%; text-align: center; }
+  .hero-demo { max-width: 240px; margin-top: 40px; }
+
+  .features { padding: 48px 16px; }
+  .features-grid { grid-template-columns: 1fr; gap: 12px; }
+  .feat-card { padding: 20px; }
+
+  .how { padding: 48px 16px; }
+  .steps-list::before { left: 18px; }
+  .step-num { width: 36px; height: 36px; font-size: .9rem; }
+  .step-item { gap: 16px; }
+
+  .usecases { padding: 48px 16px; }
+  .uc-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .uc-card { padding: 16px; }
+
+  .pricing { padding: 48px 16px; }
+  .plans { grid-template-columns: 1fr; gap: 16px; max-width: 400px; margin: 0 auto; }
+
+  .cta { padding: 56px 16px; }
+  .cta h2 { font-size: 1.7rem; }
+
+  .hp-footer { padding: 24px 16px; }
 }

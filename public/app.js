@@ -196,9 +196,27 @@ const NAV_ITEMS = [
 
 function renderShellHtml() {
   const user = state.user;
-  const navItems = NAV_ITEMS.filter(n => !n.adminOnly || user.role === 'admin');
+  const initials = (user.name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  // Primary nav items shown in bottom bar on mobile (max 5 visible)
+  const PRIMARY_NAV = [
+    { id: 'dashboard',    icon: '🏠', label: 'Home'    },
+    { id: 'my-humans',    icon: '🧑', label: 'Humans'  },
+    { id: 'generate',     icon: '🎬', label: 'Create'  },
+    { id: 'jobs',         icon: '📋', label: 'Jobs'    },
+    { id: 'credits',      icon: '💳', label: 'Credits' },
+  ];
+  if (user.role === 'admin') PRIMARY_NAV.push({ id: 'admin', icon: '🛡️', label: 'Admin' });
+
+  const mobileNavHtml = PRIMARY_NAV.map(n => `
+    <div class="nav-item${state.page === n.id ? ' active' : ''}" data-page="${n.id}">
+      <span class="icon">${n.icon}</span>${n.label}
+    </div>`).join('');
+
+  // Full sidebar nav (desktop only)
+  const NAV_ALL = NAV_ITEMS.filter(n => !n.adminOnly || user.role === 'admin');
   let lastSection = null;
-  const navHtml = navItems.map(n => {
+  const desktopNavHtml = NAV_ALL.map(n => {
     let out = '';
     if (n.section && n.section !== lastSection) {
       out += `<div class="nav-section">${n.section}</div>`;
@@ -210,7 +228,6 @@ function renderShellHtml() {
     return out;
   }).join('');
 
-  const initials = (user.name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   return `
 <div id="toasts"></div>
 <div class="shell">
@@ -219,7 +236,9 @@ function renderShellHtml() {
       <h2>Digital Human Studio</h2>
       <span>AI Video Platform</span>
     </div>
-    <nav class="sidebar-nav">${navHtml}</nav>
+    <!-- Desktop: full nav; Mobile: compact 5-tab nav via CSS -->
+    <nav class="sidebar-nav" id="desktop-nav">${desktopNavHtml}</nav>
+    <nav class="sidebar-nav" id="mobile-nav" style="display:none">${mobileNavHtml}</nav>
     <div class="sidebar-footer">
       <div class="user-pill">
         <div class="user-avatar">${initials}</div>
@@ -236,7 +255,8 @@ function renderShellHtml() {
     <div class="topbar">
       <div class="topbar-title">${getPageTitle()}</div>
       <div class="topbar-actions">
-        <button class="btn btn-primary btn-sm" data-page="generate">+ New Video</button>
+        <span class="credit-badge" style="margin-right:4px">${user.credits} cr</span>
+        <button class="btn btn-primary btn-sm" data-page="generate">+ Video</button>
       </div>
     </div>
     <div class="page" id="page-content"></div>
@@ -250,9 +270,20 @@ function getPageTitle() {
 }
 
 function bindShell() {
-  // Remove old listener to avoid duplicates
   document.removeEventListener('click', _shellClickHandler);
   document.addEventListener('click', _shellClickHandler);
+  _applyNavMode();
+  window.removeEventListener('resize', _applyNavMode);
+  window.addEventListener('resize', _applyNavMode);
+}
+
+function _applyNavMode() {
+  const isMobile = window.innerWidth <= 768;
+  const desk = document.getElementById('desktop-nav');
+  const mob  = document.getElementById('mobile-nav');
+  if (!desk || !mob) return;
+  desk.style.display = isMobile ? 'none' : '';
+  mob.style.display  = isMobile ? '' : 'none';
 }
 function _shellClickHandler(e) {
   const pageEl = e.target.closest('[data-page]');
