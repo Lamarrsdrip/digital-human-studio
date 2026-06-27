@@ -225,6 +225,62 @@ video { width: 100%; display: block; }
 .toast.success { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.08); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+/* ── Topbar avatar (clickable, navigates to profile) ── */
+.topbar-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--cyan)); display: flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 700; cursor: pointer; flex-shrink: 0; transition: opacity .15s; }
+.topbar-avatar:hover { opacity: .8; }
+
+/* ── Generate page layout ── */
+.gen-layout { display: flex; gap: 24px; align-items: flex-start; }
+.gen-main { flex: 1; min-width: 0; }
+.gen-sidebar { width: 260px; flex-shrink: 0; }
+.gen-sticky-bar { display: none; } /* mobile only */
+.gen-step-header { display: flex; align-items: center; gap: 10px; }
+.gen-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: .72rem; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.gen-cost-inline { margin-left: auto; font-size: .9rem; font-weight: 800; color: var(--accent2); background: rgba(124,92,252,.12); padding: 3px 10px; border-radius: 20px; }
+.gen-settings-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.gen-btn-desktop { margin-top: 4px; }
+
+/* ── DH picker (carousel on mobile, grid on desktop) ── */
+.dh-picker-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
+.dh-picker-card { border: 2px solid var(--border); border-radius: var(--radius); padding: 14px 10px; cursor: pointer; text-align: center; transition: all .15s; }
+.dh-picker-card:hover { border-color: var(--border2); background: var(--bg3); }
+.dh-picker-card.selected { border-color: var(--accent); background: rgba(124,92,252,.1); }
+.dh-picker-avatar { font-size: 2.4rem; margin-bottom: 8px; }
+.dh-picker-name { font-size: .82rem; font-weight: 700; color: var(--text1); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dh-picker-type { font-size: .7rem; color: var(--text3); }
+
+/* ── Create DH upload grid ── */
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* ── Profile page ── */
+.profile-hero { display: flex; align-items: center; gap: 20px; padding: 24px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; }
+.profile-avatar-lg { width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--cyan)); display: flex; align-items: center; justify-content: center; font-size: 1.6rem; font-weight: 800; flex-shrink: 0; }
+.profile-name { font-size: 1.2rem; font-weight: 800; color: var(--text1); }
+.profile-email { font-size: .85rem; color: var(--text3); margin-top: 2px; }
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+/* ── Billing page ── */
+.billing-hero { display: flex; align-items: center; gap: 24px; padding: 28px; background: linear-gradient(135deg, rgba(124,92,252,.12), rgba(6,182,212,.06)); border: 1px solid rgba(124,92,252,.25); border-radius: var(--radius); }
+.billing-balance { flex-shrink: 0; }
+.billing-balance-label { font-size: .72rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.billing-balance-value { font-size: 3.5rem; font-weight: 900; background: linear-gradient(135deg, var(--accent2), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1; }
+.billing-balance-actions { display: flex; flex-direction: column; gap: 10px; }
+.billing-plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.billing-plan-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; transition: all .15s; }
+.billing-plan-card:hover { border-color: var(--border2); background: var(--bg4); }
+.billing-plan-card.current { border-color: rgba(124,92,252,.4); background: rgba(124,92,252,.08); }
+.billing-plan-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.billing-plan-name { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.billing-plan-price { font-size: 1.4rem; font-weight: 800; color: var(--text1); }
+.billing-plan-price span { font-size: .72rem; font-weight: 400; color: var(--text3); }
+.billing-plan-cr { font-size: .8rem; color: var(--text3); }
+
+/* ── Credit cost tiles ── */
+.cost-tile { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px; text-align: center; }
+.cost-tile-icon { font-size: 1.6rem; margin-bottom: 6px; }
+.cost-tile-name { font-size: .78rem; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
+.cost-tile-amount { font-size: .78rem; font-weight: 800; color: var(--accent2); }
+
 /* ── Misc ── */
 .flex { display: flex; }
 .flex-1 { flex: 1; }
@@ -443,12 +499,67 @@ video { width: 100%; display: block; }
   .mb-6 { margin-bottom: 16px; }
 
   /* Header rows (title + action button) stay on one line */
-  .flex.items-center.justify-between {
-    flex-wrap: nowrap;
-    gap: 10px;
-  }
+  .flex.items-center.justify-between { flex-wrap: nowrap; gap: 10px; }
   .flex.items-center.justify-between .section-title { flex: 1; min-width: 0; }
   .flex.items-center.justify-between .btn { flex-shrink: 0; }
+
+  /* ── Generate page mobile ── */
+  .gen-layout { flex-direction: column; gap: 0; }
+  .gen-sidebar { display: none; } /* sidebar hidden — sticky bar takes over */
+  .gen-btn-desktop { display: none; } /* replaced by sticky bar */
+  .gen-main { padding-bottom: 80px; } /* room above sticky bar */
+  .gen-settings-row { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* DH picker → horizontal scroll carousel */
+  .dh-picker-row {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 10px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .dh-picker-row::-webkit-scrollbar { display: none; }
+  .dh-picker-card { min-width: 100px; flex-shrink: 0; padding: 10px 8px; }
+  .dh-picker-avatar { font-size: 2rem; }
+  .dh-picker-name { font-size: .75rem; }
+
+  /* Sticky generate bar */
+  .gen-sticky-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    position: fixed;
+    bottom: 62px; /* above bottom nav */
+    left: 0; right: 0;
+    z-index: 800;
+    background: rgba(17,17,24,.97);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    box-shadow: 0 -8px 32px rgba(0,0,0,.4);
+  }
+
+  /* ── Profile page mobile ── */
+  .profile-hero { flex-direction: column; text-align: center; padding: 20px 16px; gap: 14px; }
+  .profile-grid { grid-template-columns: 1fr; gap: 14px; }
+
+  /* ── Billing mobile ── */
+  .billing-hero { flex-direction: column; gap: 16px; padding: 20px 16px; }
+  .billing-balance-value { font-size: 2.8rem; }
+  .billing-balance-actions { flex-direction: row; flex-wrap: wrap; }
+  .billing-plans { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .billing-plan-card { padding: 14px; }
+  .billing-plan-price { font-size: 1.1rem; }
+
+  /* ── Upload grid ── */
+  .upload-grid { grid-template-columns: 1fr; }
+
+  /* ── View human grid ── */
+  .gen-form-card { margin-bottom: 0; }
 }
 
 /* ── Very small phones (≤400px) ── */

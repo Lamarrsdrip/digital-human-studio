@@ -770,6 +770,29 @@ async function handleAPI(req, res, pathname) {
     return json(res, 200, { user: publicUser(user) });
   }
 
+  if (pathname === '/api/auth/update-profile' && method === 'PATCH') {
+    const user = requireUser(req, db);
+    const body = await readJson(req);
+    const { name, email } = body;
+    if (!name || !email) return json(res, 400, { error: 'Name and email required.' });
+    const conflict = db.users.find(u => u.email === email && u.id !== user.id);
+    if (conflict) return json(res, 400, { error: 'Email already in use.' });
+    user.name = name; user.email = email;
+    saveDb(db);
+    return json(res, 200, { user: publicUser(user) });
+  }
+
+  if (pathname === '/api/auth/change-password' && method === 'POST') {
+    const user = requireUser(req, db);
+    const body = await readJson(req);
+    const { currentPassword, newPassword } = body;
+    if (user.passwordHash !== hashPassword(currentPassword)) return json(res, 400, { error: 'Current password is incorrect.' });
+    if (!newPassword || newPassword.length < 8) return json(res, 400, { error: 'New password must be at least 8 characters.' });
+    user.passwordHash = hashPassword(newPassword);
+    saveDb(db);
+    return json(res, 200, { ok: true });
+  }
+
   // ── Workers health ────────────────────────────────────────────────────────
   if (pathname === '/api/workers/health') {
     const health = await getWorkerHealth(db);

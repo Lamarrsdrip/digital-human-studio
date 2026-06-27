@@ -180,18 +180,19 @@ function bindAuth() {
 
 // ── Shell ──────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'dashboard', icon: '⬛', label: 'Dashboard', section: null },
-  { id: 'my-humans', icon: '🧑', label: 'My Digital Humans', section: 'CREATE' },
-  { id: 'create-human', icon: '✨', label: 'Create Digital Human', section: null },
-  { id: 'generate', icon: '🎬', label: 'Generate Video', section: 'GENERATE' },
-  { id: 'ai-ads', icon: '📢', label: 'AI Ads', section: null },
-  { id: 'ai-presenter', icon: '🎤', label: 'AI Presenter', section: null },
-  { id: 'ai-influencer', icon: '⭐', label: 'AI Influencer', section: null },
-  { id: 'jobs', icon: '📋', label: 'Video Jobs', section: 'HISTORY' },
-  { id: 'api-keys', icon: '🔑', label: 'API Keys', section: 'DEVELOPER' },
-  { id: 'workers', icon: '⚙️', label: 'Worker Status', section: null },
-  { id: 'credits', icon: '💳', label: 'Credits & Billing', section: 'ACCOUNT' },
-  { id: 'admin', icon: '🛡️', label: 'Admin Panel', section: null, adminOnly: true },
+  { id: 'dashboard',    icon: '⬛', label: 'Dashboard',          section: null },
+  { id: 'my-humans',   icon: '🧑', label: 'My Digital Humans',  section: 'CREATE' },
+  { id: 'create-human',icon: '✨', label: 'Create Digital Human',section: null },
+  { id: 'generate',    icon: '🎬', label: 'Generate Video',     section: 'GENERATE' },
+  { id: 'ai-ads',      icon: '📢', label: 'AI Ads',             section: null },
+  { id: 'ai-presenter',icon: '🎤', label: 'AI Presenter',       section: null },
+  { id: 'ai-influencer',icon:'⭐', label: 'AI Influencer',      section: null },
+  { id: 'jobs',        icon: '📋', label: 'Video Jobs',         section: 'HISTORY' },
+  { id: 'api-keys',    icon: '🔑', label: 'API Keys',           section: 'DEVELOPER' },
+  { id: 'workers',     icon: '⚙️', label: 'Worker Status',      section: null },
+  { id: 'credits',     icon: '💳', label: 'Credits & Billing',  section: 'ACCOUNT' },
+  { id: 'profile',     icon: '👤', label: 'My Profile',         section: null },
+  { id: 'admin',       icon: '🛡️', label: 'Admin Panel',        section: null, adminOnly: true },
 ];
 
 function renderShellHtml() {
@@ -200,11 +201,11 @@ function renderShellHtml() {
 
   // Primary nav items shown in bottom bar on mobile (max 5 visible)
   const PRIMARY_NAV = [
-    { id: 'dashboard',    icon: '🏠', label: 'Home'    },
-    { id: 'my-humans',    icon: '🧑', label: 'Humans'  },
-    { id: 'generate',     icon: '🎬', label: 'Create'  },
-    { id: 'jobs',         icon: '📋', label: 'Jobs'    },
-    { id: 'credits',      icon: '💳', label: 'Credits' },
+    { id: 'dashboard',   icon: '🏠', label: 'Home'    },
+    { id: 'my-humans',   icon: '🧑', label: 'Humans'  },
+    { id: 'generate',    icon: '🎬', label: 'Create'  },
+    { id: 'jobs',        icon: '📋', label: 'Jobs'    },
+    { id: 'profile',     icon: '👤', label: 'Profile' },
   ];
   if (user.role === 'admin') PRIMARY_NAV.push({ id: 'admin', icon: '🛡️', label: 'Admin' });
 
@@ -257,6 +258,7 @@ function renderShellHtml() {
       <div class="topbar-actions">
         <span class="credit-badge" style="margin-right:4px">${user.credits} cr</span>
         <button class="btn btn-primary btn-sm" data-page="generate">+ Video</button>
+        <div class="topbar-avatar" data-page="profile" title="Profile / Sign Out">${initials}</div>
       </div>
     </div>
     <div class="page" id="page-content"></div>
@@ -265,7 +267,7 @@ function renderShellHtml() {
 }
 
 function getPageTitle() {
-  const titles = { dashboard: 'Dashboard', 'my-humans': 'My Digital Humans', 'create-human': 'Create Digital Human', generate: 'Generate Video', 'ai-ads': 'AI Ad Videos', 'ai-presenter': 'AI Presenter', 'ai-influencer': 'AI Influencer', jobs: 'Video Jobs', 'api-keys': 'API Keys', workers: 'Worker Status', credits: 'Credits & Billing', admin: 'Admin Panel' };
+  const titles = { dashboard: 'Dashboard', 'my-humans': 'My Digital Humans', 'create-human': 'Create Digital Human', 'view-human': 'Digital Human', generate: 'Generate Video', 'ai-ads': 'AI Ad Videos', 'ai-presenter': 'AI Presenter', 'ai-influencer': 'AI Influencer', jobs: 'Video Jobs', 'api-keys': 'API Keys', workers: 'Worker Status', credits: 'Credits & Billing', profile: 'My Profile', admin: 'Admin Panel' };
   return titles[state.page] || 'Digital Human Studio';
 }
 
@@ -303,9 +305,10 @@ function renderPage() {
   if (!el) return;
   const pages = {
     dashboard: pageDashboard, 'my-humans': pageMyHumans, 'create-human': pageCreateHuman,
+    'view-human': pageViewHuman,
     generate: pageGenerate, 'ai-ads': pageAIAds, 'ai-presenter': pageAIPresenter,
     'ai-influencer': pageAIInfluencer, jobs: pageJobs, 'api-keys': pageAPIKeys,
-    workers: pageWorkers, credits: pageCredits, admin: pageAdmin,
+    workers: pageWorkers, credits: pageCredits, profile: pageProfile, admin: pageAdmin,
   };
   const fn = pages[state.page];
   if (fn) fn(el);
@@ -486,7 +489,7 @@ function pageCreateHuman(el) {
     return `
 <h3 style="margin-bottom:4px">Upload Face & Voice</h3>
 <p class="text-muted text-sm mb-6">${createdDH ? `Digital Human "<b>${escHtml(createdDH.name)}</b>" created. Upload assets to activate.` : 'Upload a face photo and optionally a voice sample.'}</p>
-${createdDH ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+${createdDH ? `<div class="upload-grid">
 <div>
   <label style="display:block;font-size:.8rem;font-weight:600;color:var(--text2);margin-bottom:8px">Face Photo or Video</label>
   <div class="upload-zone" id="face-drop">
@@ -630,105 +633,179 @@ async function pageGenerate(el) {
     }
 
     const MODES = [
-      { id: 'talking_head', icon: '💬', name: 'Talking Head', desc: 'Script to face video', cost: 5 },
-      { id: 'presenter',    icon: '🎤', name: 'Presenter',    desc: 'Present content professionally', cost: 8 },
-      { id: 'ad_video',     icon: '📢', name: 'Ad Video',     desc: 'Promotional / sales video', cost: 10 },
-      { id: 'influencer',   icon: '⭐', name: 'AI Influencer',desc: 'Social media style video', cost: 8 },
-      { id: 'intro',        icon: '▶️', name: 'Intro Clip',   desc: 'YouTube / TikTok intro', cost: 3 },
-      { id: 'outro',        icon: '⏹️', name: 'Outro Clip',   desc: 'Call-to-action ending', cost: 3 },
-      { id: 'podcast',      icon: '🎙️', name: 'Podcast Host', desc: 'Talk-show hosting style', cost: 6 },
-      { id: 'course',       icon: '📚', name: 'Course Video', desc: 'Educational / teaching', cost: 8 },
+      { id: 'talking_head', icon: '💬', name: 'Talking Head', cost: 5 },
+      { id: 'presenter',    icon: '🎤', name: 'Presenter',    cost: 8 },
+      { id: 'ad_video',     icon: '📢', name: 'Ad Video',     cost: 10 },
+      { id: 'influencer',   icon: '⭐', name: 'Influencer',   cost: 8 },
+      { id: 'intro',        icon: '▶️', name: 'Intro Clip',   cost: 3 },
+      { id: 'outro',        icon: '⏹️', name: 'Outro',        cost: 3 },
+      { id: 'podcast',      icon: '🎙️', name: 'Podcast',      cost: 6 },
+      { id: 'course',       icon: '📚', name: 'Course',       cost: 8 },
     ];
 
     let selectedMode = 'talking_head';
     let selectedDH = digitalHumans[0]?.id || '';
 
+    function currentCost() { return MODES.find(m => m.id === selectedMode)?.cost || 5; }
+
     function draw() {
+      const cost = currentCost();
       el.innerHTML = `
-<div class="flex gap-4" style="align-items:flex-start">
-  <!-- Left: config -->
-  <div style="flex:1;min-width:0">
+<div class="gen-layout">
+  <!-- ── Main column ── -->
+  <div class="gen-main">
+
+    <!-- Step 1: Mode -->
     <div class="card mb-4">
-      <div class="section-title mb-2">Choose Mode</div>
-      <div class="mode-grid">${MODES.map(m => `
+      <div class="gen-step-header">
+        <span class="gen-step-num">1</span>
+        <span class="section-title" style="margin:0">Choose Mode</span>
+        <span class="gen-cost-inline" id="cost-display">${cost} cr</span>
+      </div>
+      <div class="mode-grid mt-3">
+        ${MODES.map(m => `
         <div class="mode-card${selectedMode===m.id?' selected':''}" data-mode="${m.id}">
           <div class="mode-icon">${m.icon}</div>
           <div class="mode-name">${m.name}</div>
-          <div class="mode-cost">Cost: <span>${m.cost} credits</span></div>
+          <div class="mode-cost"><span>${m.cost} cr</span></div>
         </div>`).join('')}
       </div>
     </div>
+
+    <!-- Step 2: Pick Digital Human (carousel on mobile, grid on desktop) -->
     <div class="card mb-4">
-      <div class="section-title mb-4">Choose Digital Human</div>
-      <div class="dh-grid" id="dh-select-grid">
-        ${digitalHumans.map(dh => `<div class="dh-card${selectedDH===dh.id?' selected':''}" data-dh="${dh.id}" style="cursor:pointer">
-          <div class="dh-avatar"><span class="dh-avatar-placeholder">🧑</span></div>
-          <div class="dh-card-body"><div class="dh-card-name">${escHtml(dh.name)}</div><div class="dh-card-type">${dh.type}</div></div>
+      <div class="gen-step-header">
+        <span class="gen-step-num">2</span>
+        <span class="section-title" style="margin:0">Choose Avatar</span>
+        <button class="btn btn-ghost btn-sm" data-page="create-human">+ New</button>
+      </div>
+      <div class="dh-picker-row mt-3">
+        ${digitalHumans.map(dh => `
+        <div class="dh-picker-card${selectedDH===dh.id?' selected':''}" data-dh="${dh.id}">
+          <div class="dh-picker-avatar">🧑</div>
+          <div class="dh-picker-name">${escHtml(dh.name)}</div>
+          <div class="dh-picker-type">${dh.type}</div>
         </div>`).join('')}
       </div>
     </div>
-    <div class="card">
-      <div class="section-title mb-4">Video Content</div>
-      <div class="form-group">
-        <label>Script <span>(spoken text — or enter a topic to auto-write)</span></label>
-        <textarea id="gen-script" rows="5" placeholder="Enter your script here, or describe a topic and click Auto-Write…"></textarea>
+
+    <!-- Step 3: Script & Settings -->
+    <div class="card gen-form-card">
+      <div class="gen-step-header mb-4">
+        <span class="gen-step-num">3</span>
+        <span class="section-title" style="margin:0">Script & Settings</span>
       </div>
       <div class="form-group">
-        <label>Topic / Prompt <span>(optional — for AI script generation)</span></label>
-        <input type="text" id="gen-prompt" placeholder="e.g. Introduce my digital marketing agency">
-        <button class="btn btn-ghost btn-sm" id="auto-write-btn" style="margin-top:8px">✨ Auto-Write Script</button>
+        <label>Your Script <span>(spoken text)</span></label>
+        <textarea id="gen-script" rows="5" placeholder="Type what your digital human will say…"></textarea>
       </div>
-      <div class="form-row">
+      <div class="form-group">
+        <label>Topic <span>(optional — for Auto-Write)</span></label>
+        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+          <input type="text" id="gen-prompt" placeholder="e.g. Introduce my marketing agency" style="flex:1;min-width:180px">
+          <button class="btn btn-ghost btn-sm" id="auto-write-btn" style="flex-shrink:0;white-space:nowrap">✨ Auto-Write</button>
+        </div>
+      </div>
+      <div class="gen-settings-row">
         <div class="form-group"><label>Duration</label>
           <select id="gen-dur">
-            <option value="15">15 seconds</option>
-            <option value="30" selected>30 seconds</option>
-            <option value="45">45 seconds</option>
-            <option value="60">60 seconds</option>
+            <option value="15">15 sec</option>
+            <option value="30" selected>30 sec</option>
+            <option value="45">45 sec</option>
+            <option value="60">60 sec</option>
           </select>
         </div>
         <div class="form-group"><label>Format</label>
           <select id="gen-format">
-            <option value="9:16">9:16 Portrait (TikTok/Reels/Shorts)</option>
-            <option value="16:9">16:9 Landscape (YouTube)</option>
-            <option value="1:1">1:1 Square (Instagram)</option>
+            <option value="9:16">9:16 Portrait</option>
+            <option value="16:9">16:9 Landscape</option>
+            <option value="1:1">1:1 Square</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Tone</label>
+          <select id="gen-tone">
+            <option value="professional">Professional</option>
+            <option value="casual">Casual</option>
+            <option value="energetic">Energetic</option>
+            <option value="calm">Calm</option>
+            <option value="motivational">Motivational</option>
+            <option value="luxury">Luxury</option>
           </select>
         </div>
       </div>
-      <div class="form-group"><label>Tone</label>
-        <select id="gen-tone">
-          <option value="professional">Professional</option>
-          <option value="casual">Casual & Friendly</option>
-          <option value="energetic">High Energy</option>
-          <option value="calm">Calm & Trustworthy</option>
-          <option value="motivational">Motivational</option>
-          <option value="luxury">Luxury & Premium</option>
-        </select>
-      </div>
-      <button class="btn btn-primary btn-lg btn-full" id="gen-submit">🎬 Generate Video</button>
+      <!-- Desktop generate button (hidden on mobile — sticky bar shows instead) -->
+      <button class="btn btn-primary btn-lg btn-full gen-btn-desktop" id="gen-submit">🎬 Generate Video (${cost} cr)</button>
     </div>
   </div>
-  <!-- Right: live cost -->
-  <div style="width:260px;flex-shrink:0">
-    <div class="card mb-4">
-      <div class="section-title mb-3">Generation Cost</div>
-      <div style="font-size:2rem;font-weight:800;color:var(--accent2)" id="cost-display">${MODES.find(m=>m.id===selectedMode)?.cost || 5} cr</div>
+
+  <!-- ── Right sidebar (desktop only) ── -->
+  <div class="gen-sidebar">
+    <div class="card mb-4" style="position:sticky;top:16px">
+      <div class="section-title mb-3">Cost Summary</div>
+      <div style="font-size:2.2rem;font-weight:800;color:var(--accent2);margin-bottom:8px" id="cost-display-desk">${cost} cr</div>
       <p class="text-muted text-sm">You have <strong style="color:var(--text1)">${state.user.credits}</strong> credits</p>
+      <button class="btn btn-primary btn-lg btn-full mt-4" id="gen-submit-desk">🎬 Generate Video</button>
     </div>
     <div class="card">
-      <div class="section-title mb-3">What to expect</div>
-      <ul style="color:var(--text3);font-size:.8rem;line-height:2;list-style:none">
-        <li>✅ Face-synced lip movement</li>
+      <div class="section-title mb-3">What you get</div>
+      <ul style="color:var(--text3);font-size:.82rem;line-height:2.2;list-style:none">
+        <li>✅ Lip-synced face video</li>
         <li>✅ AI voice generation</li>
         <li>✅ Word-level captions</li>
-        <li>✅ 9:16 portrait format</li>
-        <li>⏱️ ~2–5 min generation time</li>
-        <li>🔧 Requires FFmpeg & workers</li>
+        <li>✅ Portrait 9:16 format</li>
+        <li>⏱️ ~2–5 min processing</li>
+        <li>🔧 Needs FFmpeg + workers</li>
       </ul>
     </div>
   </div>
+</div>
+
+<!-- ── Sticky bottom action bar (mobile only) ── -->
+<div class="gen-sticky-bar">
+  <div>
+    <div style="font-size:.68rem;color:var(--text3);font-weight:600">COST</div>
+    <div style="font-size:1.1rem;font-weight:800;color:var(--accent2)" id="cost-display-mob">${cost} cr</div>
+  </div>
+  <button class="btn btn-primary" style="flex:1;max-width:280px;padding:12px 0;font-size:.95rem;font-weight:700" id="gen-submit-mob">🎬 Generate Video</button>
 </div>`;
       bindGenEvents();
+    }
+
+    function doSubmit(btn) {
+      if (!selectedDH) { toast('Select a digital human first.', 'error'); return; }
+      const script = document.getElementById('gen-script')?.value.trim();
+      const prompt = document.getElementById('gen-prompt')?.value.trim();
+      if (!script && !prompt) { toast('Enter a script or topic to generate.', 'error'); return; }
+      const fmt = document.getElementById('gen-format')?.value || '9:16';
+      const dims = { '9:16': [1080,1920], '16:9': [1920,1080], '1:1': [1080,1080] }[fmt];
+      ['gen-submit','gen-submit-desk','gen-submit-mob'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) { b.disabled = true; b.textContent = '⏳ Submitting…'; }
+      });
+      api('/api/videos/generate', { method: 'POST', body: JSON.stringify({
+        digitalHumanId: selectedDH, mode: selectedMode, script, prompt,
+        durationSec: Number(document.getElementById('gen-dur')?.value || 30),
+        tone: document.getElementById('gen-tone')?.value || 'professional',
+        outputW: dims[0], outputH: dims[1],
+      })}).then(() => {
+        toast('Video job started! Redirecting to jobs…', 'success');
+        setTimeout(() => navigate('jobs'), 1200);
+      }).catch(e => {
+        toast(e.message, 'error');
+        ['gen-submit','gen-submit-desk','gen-submit-mob'].forEach(id => {
+          const b = document.getElementById(id); if (b) { b.disabled = false; b.textContent = '🎬 Generate Video'; }
+        });
+      });
+    }
+
+    function updateCostDisplays() {
+      const cost = currentCost();
+      ['cost-display','cost-display-desk','cost-display-mob'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = `${cost} cr`;
+      });
+      const gd = document.getElementById('gen-submit');
+      if (gd) gd.textContent = `🎬 Generate Video (${cost} cr)`;
     }
 
     function bindGenEvents() {
@@ -737,19 +814,16 @@ async function pageGenerate(el) {
           el.querySelectorAll('.mode-card').forEach(x => x.classList.remove('selected'));
           c.classList.add('selected');
           selectedMode = c.dataset.mode;
-          const cost = MODES.find(m => m.id === selectedMode)?.cost || 5;
-          const cd = document.getElementById('cost-display');
-          if (cd) cd.textContent = `${cost} cr`;
+          updateCostDisplays();
         });
       });
-      el.querySelectorAll('.dh-card').forEach(c => {
+      el.querySelectorAll('.dh-picker-card').forEach(c => {
         c.addEventListener('click', () => {
-          el.querySelectorAll('[data-dh]').forEach(x => x.classList.remove('selected'));
+          el.querySelectorAll('.dh-picker-card').forEach(x => x.classList.remove('selected'));
           c.classList.add('selected');
           selectedDH = c.dataset.dh;
         });
       });
-
       const autoBtn = document.getElementById('auto-write-btn');
       if (autoBtn) autoBtn.addEventListener('click', async () => {
         const prompt = document.getElementById('gen-prompt')?.value.trim();
@@ -757,33 +831,15 @@ async function pageGenerate(el) {
         autoBtn.disabled = true; autoBtn.textContent = '✨ Writing…';
         const dur = Number(document.getElementById('gen-dur')?.value || 30);
         const words = Math.round(dur * 2.5);
-        const script = `Welcome. Today I want to talk to you about ${prompt}. This is something that can genuinely change how you think about your work. Here is what you need to know. ${prompt} is more important than ever in 2026. Let me break it down for you simply and clearly. By the end of this video, you will have everything you need. Stay with me.`.split(' ').slice(0, words).join(' ') + '.';
+        const script = `Welcome. Today I want to talk to you about ${prompt}. This is something that can genuinely change how you think about your work. ${prompt} is more important than ever in 2026. Let me break it down simply. By the end of this video you will have everything you need. Stay with me.`.split(' ').slice(0, words).join(' ') + '.';
         const scriptEl = document.getElementById('gen-script');
         if (scriptEl) scriptEl.value = script;
-        autoBtn.disabled = false; autoBtn.textContent = '✨ Auto-Write Script';
+        autoBtn.disabled = false; autoBtn.textContent = '✨ Auto-Write';
         toast('Script generated! Edit as needed.', 'success');
       });
-
-      const submitBtn = document.getElementById('gen-submit');
-      if (submitBtn) submitBtn.addEventListener('click', async () => {
-        if (!selectedDH) { toast('Select a digital human first.', 'error'); return; }
-        const script = document.getElementById('gen-script')?.value.trim();
-        const prompt = document.getElementById('gen-prompt')?.value.trim();
-        if (!script && !prompt) { toast('Enter a script or topic to generate.', 'error'); return; }
-        const fmt = document.getElementById('gen-format')?.value || '9:16';
-        const dims = { '9:16': [1080, 1920], '16:9': [1920, 1080], '1:1': [1080, 1080] }[fmt];
-        submitBtn.disabled = true; submitBtn.textContent = '⏳ Submitting…';
-        try {
-          const res = await api('/api/videos/generate', { method: 'POST', body: JSON.stringify({
-            digitalHumanId: selectedDH, mode: selectedMode, script, prompt,
-            durationSec: Number(document.getElementById('gen-dur')?.value || 30),
-            tone: document.getElementById('gen-tone')?.value || 'professional',
-            outputW: dims[0], outputH: dims[1],
-          })});
-          toast('Video job started! Redirecting to jobs…', 'success');
-          setTimeout(() => navigate('jobs'), 1200);
-        } catch(e) { toast(e.message, 'error'); submitBtn.disabled = false; submitBtn.textContent = '🎬 Generate Video'; }
-      });
+      document.getElementById('gen-submit')?.addEventListener('click', () => doSubmit());
+      document.getElementById('gen-submit-desk')?.addEventListener('click', () => doSubmit());
+      document.getElementById('gen-submit-mob')?.addEventListener('click', () => doSubmit());
     }
     draw();
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
@@ -1072,17 +1128,255 @@ async function pageAdmin(el) {
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
 
+// ── View Digital Human ─────────────────────────────────────────────────────
+async function pageViewHuman(el) {
+  const id = state.selectedDH;
+  if (!id) { navigate('my-humans'); return; }
+  el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
+  try {
+    const { digitalHuman: dh } = await api(`/api/digital-humans/${id}`);
+    el.innerHTML = `
+<div class="flex items-center gap-3 mb-6">
+  <button class="btn btn-ghost btn-sm" data-page="my-humans">← Back</button>
+  <div class="section-title" style="margin:0">${escHtml(dh.name)}</div>
+  <span class="badge badge-${dh.status==='ready'?'green':dh.status==='taken_down'?'red':'yellow'}">${dh.status}</span>
+</div>
+<div class="grid-2 mb-4">
+  <div class="card">
+    <div class="dh-avatar" style="height:200px;border-radius:var(--radius);margin-bottom:16px;font-size:4rem">${dh.faceVideoPath ? `<img src="${dh.faceVideoPath}">` : '🧑'}</div>
+    <div class="section-title mb-1">${escHtml(dh.name)}</div>
+    <div style="color:var(--text3);font-size:.85rem;margin-bottom:16px">${dh.type} · ${dh.defaultVoice||'default voice'}</div>
+    <div class="flex gap-2" style="flex-wrap:wrap">
+      <button class="btn btn-primary" data-page="generate">🎬 Generate Video</button>
+      <button class="btn btn-danger btn-sm" id="del-dh-btn" data-id="${dh.id}">Delete</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title mb-3">Upload Assets</div>
+    <div class="form-group">
+      <label>Face Photo / Video</label>
+      <div class="upload-zone" id="face-drop" style="padding:20px">
+        <div class="icon">🖼️</div>
+        <p class="primary">Click to replace face</p>
+        <input type="file" id="face-file" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov" style="display:none">
+      </div>
+      <div id="face-status" style="margin-top:6px;font-size:.8rem;color:var(--text3)"></div>
+    </div>
+    <div class="form-group">
+      <label>Voice Sample <span>(optional)</span></label>
+      <div class="upload-zone" id="voice-drop" style="padding:20px">
+        <div class="icon">🎙️</div>
+        <p class="primary">Click to upload voice</p>
+        <input type="file" id="voice-file" accept=".wav,.mp3,.m4a,.ogg,.flac" style="display:none">
+      </div>
+      <div id="voice-status" style="margin-top:6px;font-size:.8rem;color:var(--text3)"></div>
+    </div>
+  </div>
+</div>`;
+
+    document.getElementById('face-drop')?.addEventListener('click', () => document.getElementById('face-file')?.click());
+    document.getElementById('face-file')?.addEventListener('change', async e => {
+      if (!e.target.files[0]) return;
+      const st = document.getElementById('face-status');
+      st.textContent = 'Uploading…';
+      try { await uploadFile(`/api/digital-humans/${id}/upload-face`, e.target.files[0]); st.textContent = '✅ Uploaded'; st.style.color = 'var(--green)'; }
+      catch(err) { st.textContent = '❌ ' + err.message; st.style.color = 'var(--red)'; }
+    });
+    document.getElementById('voice-drop')?.addEventListener('click', () => document.getElementById('voice-file')?.click());
+    document.getElementById('voice-file')?.addEventListener('change', async e => {
+      if (!e.target.files[0]) return;
+      const st = document.getElementById('voice-status');
+      st.textContent = 'Uploading…';
+      try { await uploadFile(`/api/digital-humans/${id}/upload-voice`, e.target.files[0]); st.textContent = '✅ Uploaded'; st.style.color = 'var(--green)'; }
+      catch(err) { st.textContent = '❌ ' + err.message; st.style.color = 'var(--red)'; }
+    });
+    document.getElementById('del-dh-btn')?.addEventListener('click', async () => {
+      if (!confirm(`Delete "${dh.name}"? This cannot be undone.`)) return;
+      try { await api(`/api/digital-humans/${id}`, { method: 'DELETE' }); toast('Deleted.', 'success'); navigate('my-humans'); }
+      catch(e) { toast(e.message, 'error'); }
+    });
+  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
+}
+
+// ── Profile ────────────────────────────────────────────────────────────────
+async function pageProfile(el) {
+  const user = state.user;
+  const initials = (user.name || 'U').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  el.innerHTML = `
+<div class="profile-hero">
+  <div class="profile-avatar-lg">${initials}</div>
+  <div>
+    <div class="profile-name">${escHtml(user.name)}</div>
+    <div class="profile-email">${escHtml(user.email)}</div>
+    <span class="badge badge-purple" style="margin-top:6px">${user.plan} plan</span>
+  </div>
+</div>
+
+<div class="profile-grid">
+  <!-- Edit Info -->
+  <div class="card">
+    <div class="section-title mb-4">Edit Profile</div>
+    <div class="form-group">
+      <label>Full Name</label>
+      <input type="text" id="prof-name" value="${escHtml(user.name||'')}">
+    </div>
+    <div class="form-group">
+      <label>Email Address</label>
+      <input type="email" id="prof-email" value="${escHtml(user.email||'')}">
+    </div>
+    <button class="btn btn-primary" id="save-profile-btn">Save Changes</button>
+  </div>
+
+  <!-- Change Password -->
+  <div class="card">
+    <div class="section-title mb-4">Change Password</div>
+    <div class="form-group">
+      <label>Current Password</label>
+      <input type="password" id="prof-pw-cur" placeholder="Current password">
+    </div>
+    <div class="form-group">
+      <label>New Password</label>
+      <input type="password" id="prof-pw-new" placeholder="Min 8 characters">
+    </div>
+    <div class="form-group">
+      <label>Confirm New Password</label>
+      <input type="password" id="prof-pw-confirm" placeholder="Repeat new password">
+    </div>
+    <button class="btn btn-ghost" id="change-pw-btn">Update Password</button>
+  </div>
+</div>
+
+<!-- Account Summary -->
+<div class="card mt-4">
+  <div class="section-title mb-3">Account Summary</div>
+  <div class="grid-4" style="gap:12px;margin-bottom:0">
+    <div class="stat-card accent"><div class="stat-label">Credits</div><div class="stat-value">${user.credits}</div></div>
+    <div class="stat-card"><div class="stat-label">Plan</div><div class="stat-value" style="font-size:1.2rem;text-transform:capitalize">${user.plan}</div></div>
+    <div class="stat-card"><div class="stat-label">Role</div><div class="stat-value" style="font-size:1.2rem;text-transform:capitalize">${user.role}</div></div>
+    <div class="stat-card" style="cursor:pointer" data-page="credits"><div class="stat-label">Billing</div><div class="stat-value" style="font-size:1.2rem">→</div></div>
+  </div>
+</div>
+
+<!-- Sign Out -->
+<div class="card mt-4" style="border-color:rgba(239,68,68,.25)">
+  <div class="section-title mb-2">Sign Out</div>
+  <p class="text-muted text-sm mb-4">You will be signed out of your account on this device.</p>
+  <button class="btn btn-danger" id="profile-logout-btn">Sign Out</button>
+</div>`;
+
+  document.getElementById('save-profile-btn')?.addEventListener('click', async () => {
+    const name  = document.getElementById('prof-name')?.value.trim();
+    const email = document.getElementById('prof-email')?.value.trim();
+    if (!name || !email) { toast('Name and email are required.', 'error'); return; }
+    try {
+      const res = await api('/api/auth/update-profile', { method: 'PATCH', body: JSON.stringify({ name, email }) });
+      state.user = { ...state.user, name, email };
+      toast('Profile saved!', 'success');
+      renderShell();
+    } catch(e) { toast(e.message || 'Could not save profile.', 'error'); }
+  });
+
+  document.getElementById('change-pw-btn')?.addEventListener('click', async () => {
+    const cur     = document.getElementById('prof-pw-cur')?.value;
+    const newPw   = document.getElementById('prof-pw-new')?.value;
+    const confirm = document.getElementById('prof-pw-confirm')?.value;
+    if (!cur || !newPw) { toast('Fill in current and new password.', 'error'); return; }
+    if (newPw !== confirm) { toast('New passwords do not match.', 'error'); return; }
+    if (newPw.length < 8) { toast('Password must be at least 8 characters.', 'error'); return; }
+    try {
+      await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: cur, newPassword: newPw }) });
+      toast('Password changed!', 'success');
+      ['prof-pw-cur','prof-pw-new','prof-pw-confirm'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+    } catch(e) { toast(e.message || 'Could not change password.', 'error'); }
+  });
+
+  document.getElementById('profile-logout-btn')?.addEventListener('click', () => {
+    localStorage.removeItem('dhs_token');
+    state.user = null; state.token = null;
+    render();
+  });
+}
+
+// ── Credits (rearranged) ───────────────────────────────────────────────────
+async function pageCredits(el) {
+  try {
+    const { credits, plan, transactions } = await api('/api/credits/status');
+    const PLANS = [
+      { id:'free',       label:'Free',       cr:'30 cr/mo',   price:'$0',   color:'var(--text2)' },
+      { id:'starter',    label:'Starter',    cr:'200 cr/mo',  price:'$19',  color:'var(--cyan)' },
+      { id:'pro',        label:'Pro',        cr:'600 cr/mo',  price:'$49',  color:'var(--accent2)' },
+      { id:'enterprise', label:'Enterprise', cr:'2,000 cr/mo',price:'$149', color:'var(--yellow)' },
+    ];
+    const COSTS = [
+      ['💬','Talking Head','5 cr'],['🎤','Presenter','8 cr'],['📢','Ad Video','10 cr'],
+      ['⭐','Influencer','8 cr'],['🎙️','Podcast','6 cr'],['📚','Course','8 cr'],
+      ['▶️','Intro Clip','3 cr'],['⏹️','Outro Clip','3 cr'],
+    ];
+    el.innerHTML = `
+<!-- Balance hero -->
+<div class="billing-hero mb-6">
+  <div class="billing-balance">
+    <div class="billing-balance-label">Credits Remaining</div>
+    <div class="billing-balance-value">${credits}</div>
+    <div class="badge badge-purple" style="font-size:.85rem;padding:4px 12px;margin-top:8px;text-transform:capitalize">${plan} Plan</div>
+  </div>
+  <div class="billing-balance-actions">
+    <button class="btn btn-primary btn-lg">Buy Credits</button>
+    <button class="btn btn-ghost">Upgrade Plan</button>
+    <p class="text-muted text-sm" style="margin-top:8px">Credits reset monthly on your billing date</p>
+  </div>
+</div>
+
+<!-- Credit costs -->
+<div class="section-title mb-3">Credit Cost Reference</div>
+<div class="grid-4 mb-6">
+  ${COSTS.map(([icon,name,cost])=>`
+  <div class="cost-tile">
+    <div class="cost-tile-icon">${icon}</div>
+    <div class="cost-tile-name">${name}</div>
+    <div class="cost-tile-amount">${cost}</div>
+  </div>`).join('')}
+</div>
+
+<!-- Plans -->
+<div class="section-title mb-3">Plans</div>
+<div class="billing-plans mb-6">
+  ${PLANS.map(p=>`
+  <div class="billing-plan-card${p.id===plan?' current':''}">
+    <div class="billing-plan-top">
+      <div class="billing-plan-name" style="color:${p.color}">${p.label}</div>
+      <div class="billing-plan-price">${p.price}<span>/mo</span></div>
+    </div>
+    <div class="billing-plan-cr">${p.cr}</div>
+    ${p.id===plan
+      ? `<span class="badge badge-green" style="margin-top:12px;align-self:flex-start">Current Plan</span>`
+      : `<button class="btn btn-ghost btn-sm" style="margin-top:12px;align-self:flex-start">Upgrade →</button>`}
+  </div>`).join('')}
+</div>
+
+<!-- Transactions -->
+${transactions?.length ? `
+<div class="section-title mb-3">Recent Transactions</div>
+<div class="card" style="overflow-x:auto">
+  <table class="table">
+    <thead><tr><th>Date</th><th>Description</th><th>Credits</th></tr></thead>
+    <tbody>${transactions.map(t=>`<tr>
+      <td style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td>
+      <td>${escHtml(t.reason||'')}</td>
+      <td style="font-weight:700;color:${t.amount<0?'var(--red)':'var(--green)'}">${t.amount>0?'+':''}${t.amount}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+</div>` : `<div class="empty-state"><div class="icon">💳</div><h3>No transactions yet</h3><p>Your credit history will appear here</p></div>`}`;
+  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
+}
+
 // ── Utils ──────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-// Ensure toasts container exists (may already be in HTML)
 if (!document.getElementById('toasts')) {
-  const toastsDiv = document.createElement('div');
-  toastsDiv.id = 'toasts';
-  document.body.appendChild(toastsDiv);
+  const t = document.createElement('div'); t.id = 'toasts'; document.body.appendChild(t);
 }
-render();
 render();
