@@ -3,113 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Digital Human Studio — AI Talking-Head Video Generator</title>
-  <meta name="description" content="Create AI talking-head videos with real lip sync, voice cloning, and captions. No camera. No studio. Just type and generate.">
+  <title>Digital Human OS — Create Your AI Twin</title>
+  <meta name="description" content="Create a digital version of yourself. Train your AI twin once. Generate unlimited videos — without ever turning on a camera again.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
-  <style>
-    /* ── Homepage only ── */
-    .hp-wrap { min-height: 100vh; background: var(--bg); }
-
-    /* Hero */
-    .hero { position: relative; overflow: hidden; padding: 80px 24px 100px; text-align: center; background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124,92,252,.28) 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,182,212,.12) 0%, transparent 70%); }
-    .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(124,92,252,.15); border: 1px solid rgba(124,92,252,.35); border-radius: 20px; padding: 6px 16px; font-size: .78rem; font-weight: 700; color: var(--accent2); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 28px; }
-    .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
-    .hero h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 900; line-height: 1.08; letter-spacing: -.03em; margin: 0 auto 20px; max-width: 900px; }
-    .hero h1 .grad { background: linear-gradient(135deg, #a78bfa 0%, #67e8f9 60%, #a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .hero-sub { font-size: 1.15rem; color: var(--text2); max-width: 580px; margin: 0 auto 40px; line-height: 1.7; }
-    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-    .btn-hero { padding: 14px 32px; border-radius: 10px; font-size: 1rem; font-weight: 700; cursor: pointer; border: none; transition: all .2s; }
-    .btn-hero-primary { background: var(--accent); color: #fff; box-shadow: 0 0 32px rgba(124,92,252,.5); }
-    .btn-hero-primary:hover { background: #6d4fe0; transform: translateY(-2px); box-shadow: 0 8px 40px rgba(124,92,252,.6); }
-    .btn-hero-ghost { background: transparent; color: var(--text1); border: 1px solid var(--border2); }
-    .btn-hero-ghost:hover { background: var(--bg3); }
-
-    /* Demo video card */
-    .hero-demo { max-width: 340px; margin: 60px auto 0; background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.6), 0 0 0 1px rgba(124,92,252,.2); position: relative; }
-    .hero-demo-bar { padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
-    .hero-demo-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
-    .hero-demo-inner { aspect-ratio: 9/16; background: linear-gradient(180deg, #1a0a3a 0%, #0a0a14 100%); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; position: relative; }
-    .avatar-ring { width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(124,92,252,.5); background: linear-gradient(135deg, #232330, #1a1a24); display: flex; align-items: center; justify-content: center; font-size: 4rem; animation: pulse 3s ease-in-out infinite; }
-    @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(124,92,252,.4)} 50%{box-shadow:0 0 0 20px rgba(124,92,252,0)} }
-    .caption-bar { background: rgba(0,0,0,.85); border-radius: 8px; padding: 10px 16px; font-size: 1rem; font-weight: 800; color: #fff; text-align: center; }
-    .caption-bar span { color: #06b6d4; }
-    .waveform { display: flex; gap: 4px; align-items: center; }
-    .waveform div { width: 4px; background: var(--accent2); border-radius: 2px; animation: wave 1.2s ease-in-out infinite; }
-    .waveform div:nth-child(1){height:12px;animation-delay:0s}
-    .waveform div:nth-child(2){height:22px;animation-delay:.15s}
-    .waveform div:nth-child(3){height:32px;animation-delay:.3s}
-    .waveform div:nth-child(4){height:20px;animation-delay:.45s}
-    .waveform div:nth-child(5){height:14px;animation-delay:.6s}
-    .waveform div:nth-child(6){height:28px;animation-delay:.75s}
-    .waveform div:nth-child(7){height:18px;animation-delay:.9s}
-    @keyframes wave { 0%,100%{transform:scaleY(1);opacity:.7} 50%{transform:scaleY(1.8);opacity:1} }
-
-    /* Features */
-    .features { padding: 80px 24px; max-width: 1140px; margin: 0 auto; }
-    .features-head { text-align: center; margin-bottom: 56px; }
-    .features-head h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 12px; }
-    .features-head p { color: var(--text2); font-size: 1rem; max-width: 520px; margin: 0 auto; }
-    .features-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-    .feat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 28px; transition: all .2s; }
-    .feat-card:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: 0 20px 60px rgba(124,92,252,.15); }
-    .feat-icon { font-size: 2.4rem; margin-bottom: 16px; }
-    .feat-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
-    .feat-card p { color: var(--text2); font-size: .875rem; line-height: 1.7; }
-
-    /* How it works */
-    .how { padding: 80px 24px; background: var(--bg2); }
-    .how-inner { max-width: 800px; margin: 0 auto; }
-    .how h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 48px; }
-    .steps-list { display: flex; flex-direction: column; gap: 0; position: relative; }
-    .steps-list::before { content: ''; position: absolute; left: 28px; top: 0; bottom: 0; width: 2px; background: linear-gradient(180deg, var(--accent), var(--cyan)); opacity: .3; }
-    .step-item { display: flex; gap: 24px; padding: 24px 0; position: relative; }
-    .step-num { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--cyan)); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 900; flex-shrink: 0; box-shadow: 0 0 20px rgba(124,92,252,.4); }
-    .step-body { padding-top: 12px; }
-    .step-body h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
-    .step-body p { color: var(--text2); font-size: .875rem; line-height: 1.6; }
-
-    /* Use cases */
-    .usecases { padding: 80px 24px; max-width: 1140px; margin: 0 auto; }
-    .usecases h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 48px; }
-    .uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-    .uc-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 14px; padding: 22px; text-align: center; transition: all .2s; }
-    .uc-card:hover { border-color: var(--border2); background: var(--bg4); }
-    .uc-card .uc-icon { font-size: 2.2rem; margin-bottom: 12px; }
-    .uc-card h4 { font-size: .9rem; font-weight: 700; margin-bottom: 6px; }
-    .uc-card p { color: var(--text3); font-size: .78rem; line-height: 1.5; }
-
-    /* Pricing */
-    .pricing { padding: 80px 24px; background: var(--bg2); }
-    .pricing-inner { max-width: 1000px; margin: 0 auto; }
-    .pricing h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 12px; }
-    .pricing-sub { text-align: center; color: var(--text2); margin-bottom: 48px; }
-    .plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
-    .plan-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 16px; padding: 28px; position: relative; }
-    .plan-card.featured { border-color: var(--accent); background: linear-gradient(135deg, rgba(124,92,252,.12), rgba(6,182,212,.06)); box-shadow: 0 0 40px rgba(124,92,252,.2); }
-    .plan-badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--accent), var(--cyan)); color: #fff; border-radius: 10px; padding: 4px 14px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
-    .plan-name { font-size: .8rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-    .plan-price { font-size: 2.2rem; font-weight: 900; margin-bottom: 4px; }
-    .plan-price span { font-size: 1rem; font-weight: 400; color: var(--text3); }
-    .plan-credits { color: var(--accent2); font-weight: 600; font-size: .85rem; margin-bottom: 20px; }
-    .plan-features { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-direction: column; gap: 8px; }
-    .plan-features li { font-size: .82rem; color: var(--text2); display: flex; align-items: center; gap: 8px; }
-    .plan-features li::before { content: '✓'; color: var(--green); font-weight: 700; }
-
-    /* CTA */
-    .cta { padding: 100px 24px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 100%, rgba(124,92,252,.2) 0%, transparent 70%); }
-    .cta h2 { font-size: 2.4rem; font-weight: 900; margin-bottom: 16px; }
-    .cta p { color: var(--text2); font-size: 1.05rem; margin-bottom: 36px; }
-
-    /* Nav */
-    .hp-nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--border); background: rgba(9,9,15,.8); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }
-    .hp-nav-logo { font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .hp-nav-actions { display: flex; gap: 10px; }
-
-    /* Footer */
-    .hp-footer { padding: 32px 24px; border-top: 1px solid var(--border); text-align: center; color: var(--text3); font-size: .8rem; }
-  </style>
 </head>
 <body>
 <div id="toasts"></div>
@@ -118,239 +16,402 @@
   <!-- ── Homepage (shown when logged out) ── -->
   <div id="homepage" class="hp-wrap">
 
-    <!-- Nav -->
+    <!-- NAV -->
     <nav class="hp-nav">
-      <div class="hp-nav-logo">Digital Human Studio</div>
+      <div class="hp-nav-logo">Digital Human OS</div>
+      <div class="hp-nav-links">
+        <a href="#how">How it Works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#safety">Safety</a>
+        <a href="https://clipforge.ai" target="_blank">ClipForge</a>
+      </div>
       <div class="hp-nav-actions">
         <button class="btn btn-ghost btn-sm" id="hp-login-btn">Sign In</button>
-        <button class="btn btn-primary btn-sm" id="hp-signup-btn">Get Started Free</button>
+        <button class="btn btn-primary btn-sm" id="hp-signup-btn">Create My AI Twin</button>
       </div>
     </nav>
 
-    <!-- Hero -->
-    <section class="hero">
-      <div class="hero-badge"><span class="dot"></span>AI-Powered · Local-First · 9:16 Ready</div>
-      <h1>Create AI <span class="grad">Digital Human</span> Videos in Minutes</h1>
-      <p class="hero-sub">Upload your face once. Type any script. Get a professional talking-head video with real lip sync, AI voice, and styled captions — ready for TikTok, Reels, and Shorts.</p>
-      <div class="hero-actions">
-        <button class="btn-hero btn-hero-primary" id="hero-start-btn">Start Free — 30 Credits</button>
-        <button class="btn-hero btn-hero-ghost" id="hero-login-btn">Sign In →</button>
+    <!-- HERO SECTION -->
+    <section class="hero-2026">
+      <!-- Background blobs -->
+      <div style="position:absolute;inset:0;pointer-events:none;overflow:hidden">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+        <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(124,92,252,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(124,92,252,.05) 1px,transparent 1px);background-size:48px 48px;"></div>
       </div>
 
-      <!-- Animated demo preview -->
-      <div class="hero-demo">
-        <div class="hero-demo-bar">
-          <div class="dot" style="background:#ef4444"></div>
-          <div class="dot" style="background:#eab308"></div>
-          <div class="dot" style="background:#22c55e"></div>
-          <span style="flex:1;text-align:center;font-size:.72rem;color:var(--text3)">Digital Human Studio</span>
+      <div style="position:relative;z-index:1">
+        <div class="hero-badge-2026">
+          <span class="dot" style="background:var(--green);box-shadow:0 0 8px var(--green)"></span>
+          AI-Powered &middot; Local-First &middot; Cloud-Ready
         </div>
-        <div class="hero-demo-inner">
-          <div class="avatar-ring">🧑</div>
-          <div class="waveform">
-            <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
-          </div>
-          <div class="caption-bar">
-            THIS is how you <span>scale content</span>
-          </div>
-          <div style="position:absolute;bottom:16px;right:16px;background:rgba(124,92,252,.8);border-radius:6px;padding:4px 10px;font-size:.68rem;font-weight:700;color:#fff">● LIVE PREVIEW</div>
-        </div>
-      </div>
-    </section>
 
-    <!-- Features -->
-    <section class="features">
-      <div class="features-head">
-        <h2>Everything you need to go viral</h2>
-        <p>Professional talking-head video production, powered by AI and running on your own machine.</p>
-      </div>
-      <div class="features-grid">
-        <div class="feat-card">
-          <div class="feat-icon">🧑</div>
-          <h3>AI Digital Human Creation</h3>
-          <p>Upload a single face photo or short video. Your AI avatar is ready in seconds — consistent identity across every video you create.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">🎤</div>
-          <h3>Voice Generation (TTS)</h3>
-          <p>Type your script and get natural, expressive audio instantly. Supports multiple voices, speeds, and emotional tones — no microphone needed.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">👄</div>
-          <h3>Real Lip Sync</h3>
-          <p>Your face actually mouths the words. Powered by Wav2Lip technology — the same tech used in professional AI video tools, running locally.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">📝</div>
-          <h3>Word-Level Captions</h3>
-          <p>Auto-generated, styled captions in the viral Hormozi / MrBeast style. Words highlight one by one as they're spoken.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">📱</div>
-          <h3>9:16 Portrait Export</h3>
-          <p>Every video is rendered in 1080×1920 — perfectly sized for TikTok, Instagram Reels, and YouTube Shorts, no cropping needed.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">🔗</div>
-          <h3>ClipForge AI Integration</h3>
-          <p>Fully integrated into ClipForge AI. Generate presenter intros, AI ads, and talking-head clips directly from your video repurposing workflow.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">🔒</div>
-          <h3>Built-in Consent System</h3>
-          <p>Every digital human requires explicit consent verification. Usage is logged, admin takedown controls are built in from day one.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">⚡</div>
-          <h3>Local-First, Cloud-Ready</h3>
-          <p>Runs 100% on your Mac — no monthly API bills, no data leaving your machine. Swap to cloud GPU workers any time with one env variable.</p>
-        </div>
-        <div class="feat-card">
-          <div class="feat-icon">🛠️</div>
-          <h3>Full Admin Control</h3>
-          <p>Manage users, credits, digital humans, and all video jobs from the built-in admin panel. Takedown controls for content moderation.</p>
-        </div>
-      </div>
-    </section>
+        <h1 class="grad-text">Create a digital version<br>of yourself.</h1>
 
-    <!-- How it works -->
-    <section class="how">
-      <div class="how-inner">
-        <h2>How it works</h2>
-        <div class="steps-list">
-          <div class="step-item">
-            <div class="step-num">1</div>
-            <div class="step-body">
-              <h3>Create your Digital Human</h3>
-              <p>Upload a face photo or short video clip. Set your identity type, confirm consent, and your AI avatar is ready.</p>
+        <p class="hero-sub">Train your AI twin once. Generate unlimited videos of yourself speaking, presenting, selling, teaching, and creating content &mdash; without ever turning on a camera again.</p>
+
+        <div class="hero-cta-row">
+          <button class="btn-hero-2026 btn-hero-primary-2026" id="hero-camera-btn">&#128248; Capture My Face</button>
+          <button class="btn-hero-2026 btn-hero-secondary-2026" id="hero-upload-btn">&#128193; Upload Photos &amp; Voice</button>
+          <button class="btn-hero-2026 btn-hero-ghost-2026" id="hero-fictional-btn">&#10024; Generate from Prompt</button>
+        </div>
+
+        <!-- Camera demo mockup -->
+        <div class="hero-camera-demo">
+          <div class="camera-demo-card">
+            <div class="camera-demo-topbar">
+              <div style="width:10px;height:10px;border-radius:50%;background:#ef4444"></div>
+              <div style="width:10px;height:10px;border-radius:50%;background:#eab308"></div>
+              <div style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div>
+              <span style="flex:1;text-align:center;font-size:.68rem;color:var(--text3)">Digital Human OS &mdash; Camera</span>
             </div>
-          </div>
-          <div class="step-item">
-            <div class="step-num">2</div>
-            <div class="step-body">
-              <h3>Write or generate your script</h3>
-              <p>Type exactly what you want your digital human to say — or give a topic and let the AI write a viral script for you.</p>
+            <div class="camera-demo-inner">
+              <div class="camera-demo-scan-line"></div>
+              <div class="camera-demo-face">&#129489;</div>
+              <div class="camera-demo-points">
+                <div class="camera-point" style="top:28%;left:38%;animation-delay:.2s"></div>
+                <div class="camera-point" style="top:28%;left:62%;animation-delay:.5s"></div>
+                <div class="camera-point" style="top:42%;left:50%;animation-delay:.8s"></div>
+                <div class="camera-point" style="top:55%;left:40%;animation-delay:.3s"></div>
+                <div class="camera-point" style="top:55%;left:60%;animation-delay:.7s"></div>
+              </div>
+              <div class="camera-demo-badge">Face detected &#10003;</div>
             </div>
-          </div>
-          <div class="step-item">
-            <div class="step-num">3</div>
-            <div class="step-body">
-              <h3>AI generates voice + lip sync</h3>
-              <p>The TTS worker generates natural speech. Wav2Lip animates your face to match every word with precise lip movements.</p>
-            </div>
-          </div>
-          <div class="step-item">
-            <div class="step-num">4</div>
-            <div class="step-body">
-              <h3>Captions + final render</h3>
-              <p>Word-level captions are generated and burned in. FFmpeg renders the final 9:16 portrait video at 1080×1920, 30fps.</p>
-            </div>
-          </div>
-          <div class="step-item">
-            <div class="step-num">5</div>
-            <div class="step-body">
-              <h3>Download and publish</h3>
-              <p>Your video is ready in minutes. Download it, post it to TikTok, Reels, or Shorts, or send it straight to ClipForge AI.</p>
+            <div style="padding:12px 16px;background:var(--bg2);display:flex;align-items:center;gap:10px">
+              <span style="font-size:.68rem;color:var(--text3);font-weight:600">VOICE</span>
+              <div class="waveform" style="flex:1">
+                <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              </div>
+              <span style="font-size:.65rem;color:var(--green);font-weight:700">&#9679; REC</span>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Use cases -->
-    <section class="usecases">
-      <h2>Built for every creator</h2>
-      <div class="uc-grid">
-        <div class="uc-card"><div class="uc-icon">📢</div><h4>Ad Videos</h4><p>Persuasive product ads with a human face — no actor needed</p></div>
-        <div class="uc-card"><div class="uc-icon">🎤</div><h4>Presenters</h4><p>AI presenter for your brand, channel, or business</p></div>
-        <div class="uc-card"><div class="uc-icon">⭐</div><h4>AI Influencer</h4><p>Build a consistent AI persona for social media growth</p></div>
-        <div class="uc-card"><div class="uc-icon">📚</div><h4>Course Videos</h4><p>Professional training and educational content at scale</p></div>
-        <div class="uc-card"><div class="uc-icon">🎙️</div><h4>Podcast Host</h4><p>Talk-show style videos without recording equipment</p></div>
-        <div class="uc-card"><div class="uc-icon">💼</div><h4>Sales Videos</h4><p>Personalized sales pitches in any language</p></div>
-        <div class="uc-card"><div class="uc-icon">▶️</div><h4>Intros & Outros</h4><p>Custom channel intros with your AI avatar</p></div>
-        <div class="uc-card"><div class="uc-icon">🌍</div><h4>Multi-Language</h4><p>Generate the same video in 10+ languages instantly</p></div>
+    <!-- THREE CREATION PATHS -->
+    <div class="section-wrap" id="how">
+      <div class="section-head">
+        <h2>Three ways to create your AI human</h2>
+        <p>Pick the path that fits your situation. All three produce a fully functional AI twin.</p>
       </div>
-    </section>
+      <div class="creation-paths">
+        <div class="creation-path-card glass-card">
+          <div class="creation-path-icon" style="background:linear-gradient(135deg,rgba(124,92,252,.25),rgba(124,92,252,.1))">&#128248;</div>
+          <h3>Capture Yourself</h3>
+          <p>Open your camera. We guide you through a 60-second face and voice recording. Guided face verification like Face ID.</p>
+          <button class="creation-path-btn" data-goto="create-twin">Start Camera Capture &rarr;</button>
+        </div>
+        <div class="creation-path-card glass-card">
+          <div class="creation-path-icon" style="background:linear-gradient(135deg,rgba(6,182,212,.25),rgba(6,182,212,.1))">&#128193;</div>
+          <h3>Upload Your Assets</h3>
+          <p>Have existing photos, videos, or voice recordings? Upload them and we build your digital twin from your files.</p>
+          <button class="creation-path-btn" data-goto="create-human">Upload Files &rarr;</button>
+        </div>
+        <div class="creation-path-card glass-card">
+          <div class="creation-path-icon" style="background:linear-gradient(135deg,rgba(234,179,8,.25),rgba(234,179,8,.1))">&#10024;</div>
+          <h3>Generate from Description</h3>
+          <p>Describe any person and we generate a completely fictional AI human &mdash; no real person needed.</p>
+          <div class="creation-path-example">"Confident female business presenter, 28, British accent, luxury style"</div>
+          <button class="creation-path-btn" data-goto="create-fictional">Generate Human &rarr;</button>
+        </div>
+      </div>
+    </div>
 
-    <!-- Pricing -->
-    <section class="pricing">
-      <div class="pricing-inner">
+    <!-- WHAT YOUR AI TWIN CAN DO -->
+    <div class="section-wrap-dark">
+      <div style="max-width:1140px;margin:0 auto;padding:0 24px">
+        <div class="section-head">
+          <h2>Your digital twin works 24/7</h2>
+          <p>One twin. Infinite content.</p>
+        </div>
+        <div class="capability-grid">
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#127916;</div>
+            <div class="cap-title">Talking Head Videos</div>
+            <div class="cap-desc">Your face, your voice, any script. Ready in minutes for any platform.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#128226;</div>
+            <div class="cap-title">Ad &amp; Promo Videos</div>
+            <div class="cap-desc">Persuasive product ads with a real human face &mdash; no actor needed.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#127891;</div>
+            <div class="cap-title">Teaching &amp; Courses</div>
+            <div class="cap-desc">Professional training and educational content at scale, with your face.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#128188;</div>
+            <div class="cap-title">Sales Presentations</div>
+            <div class="cap-desc">Personalized video pitches for every prospect, without re-recording.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#11088;</div>
+            <div class="cap-title">Social Media Content</div>
+            <div class="cap-desc">Build a consistent persona for TikTok, Reels, and Shorts &mdash; automatically.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#127908;</div>
+            <div class="cap-title">Podcast &amp; Host</div>
+            <div class="cap-desc">Talk-show style videos without recording equipment or a studio.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#128279;</div>
+            <div class="cap-title">ClipForge Intros/Outros</div>
+            <div class="cap-desc">Custom channel intros and outros with your AI avatar, inside ClipForge.</div>
+          </div>
+          <div class="cap-card glass-card">
+            <div class="cap-icon">&#127757;</div>
+            <div class="cap-title">Multilingual Videos</div>
+            <div class="cap-desc">Generate the same video in 10+ languages with one click. Same face, different voice.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIGITAL TWIN ENGINE -->
+    <div class="section-wrap">
+      <div class="section-head">
+        <h2>The Digital Twin Engine</h2>
+        <p>Every component designed for real production use</p>
+      </div>
+      <div class="engine-grid">
+        <div class="engine-spec glass-card">
+          <h4>&#128068; Lip Sync</h4>
+          <p>Wav2Lip neural lip sync. Frame-by-frame accuracy synced to every phoneme in your script.</p>
+        </div>
+        <div class="engine-spec glass-card">
+          <h4>&#127908; Voice AI</h4>
+          <p>Natural TTS with Piper, ElevenLabs, or macOS voice engine. Sounds human, not robotic.</p>
+        </div>
+        <div class="engine-spec glass-card">
+          <h4>&#128221; Captions</h4>
+          <p>Word-level caption timing. Viral-style caption burns. The same look used by top creators.</p>
+        </div>
+        <div class="engine-spec glass-card">
+          <h4>&#128444; Face Prep</h4>
+          <p>MediaPipe face detection. Auto-crop and normalize. Works from photos or captured video.</p>
+        </div>
+        <div class="engine-spec glass-card">
+          <h4>&#127916; Render</h4>
+          <p>FFmpeg H.264. loudnorm audio. faststart web delivery. Ready to post in seconds.</p>
+        </div>
+        <div class="engine-spec glass-card">
+          <h4>&#9729; Cloud-Ready</h4>
+          <p>Local now. Cloud GPU workers when you need scale. Swap with one environment variable.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATION FLOW VISUAL -->
+    <div class="section-wrap-dark">
+      <div style="max-width:1140px;margin:0 auto;padding:0 24px">
+        <div class="section-head">
+          <h2>From camera to content in minutes</h2>
+          <p>Five steps. Fully automated. You just type.</p>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-num">&#128248;</div>
+            <h4>Capture or Upload</h4>
+            <p>Record 60 seconds or upload existing media</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-num">&#129504;</div>
+            <h4>AI Trains Your Twin</h4>
+            <p>Face detection, voice analysis, profile creation</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-num">&#9997;&#65039;</div>
+            <h4>Write Your Script</h4>
+            <p>Type what you want your twin to say, or use AI auto-write</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-num">&#9881;&#65039;</div>
+            <h4>Generate Video</h4>
+            <p>TTS &rarr; Lip Sync &rarr; Captions &rarr; FFmpeg render</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-num">&#11015;&#65039;</div>
+            <h4>Download &amp; Post</h4>
+            <p>Ready for TikTok, Reels, YouTube Shorts</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUILT FOR CLIPFORGE -->
+    <div class="section-wrap">
+      <div class="glass-card" style="padding:48px 40px;background:linear-gradient(135deg,rgba(124,92,252,.15),rgba(6,182,212,.08));border-color:rgba(124,92,252,.3);text-align:center;max-width:860px;margin:0 auto">
+        <div style="font-size:2.5rem;margin-bottom:16px">&#128279;</div>
+        <h2 style="font-size:1.8rem;font-weight:900;margin-bottom:12px">Your AI twin lives inside ClipForge AI too</h2>
+        <p style="color:var(--text2);max-width:560px;margin:0 auto 32px;line-height:1.7">Generate presenter intros, AI ad overlays, faceless content presenters, and talking-head clips &mdash; all from inside your ClipForge workflow.</p>
+        <a href="https://clipforge.ai" target="_blank" class="btn btn-primary btn-lg">Open ClipForge AI &rarr;</a>
+      </div>
+    </div>
+
+    <!-- STATS ROW -->
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-n">8+</div>
+        <div class="stat-l">Video modes</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-n">3</div>
+        <div class="stat-l">Creation paths</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-n">Local &amp; cloud</div>
+        <div class="stat-l">Runtime options</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-n">$0</div>
+        <div class="stat-l">Monthly API bills (local mode)</div>
+      </div>
+    </div>
+
+    <!-- SAFETY & CONSENT -->
+    <div class="section-wrap-dark" id="safety">
+      <div style="max-width:1140px;margin:0 auto;padding:0 24px">
+        <div class="section-head">
+          <h2>Built with consent. Designed to be trustworthy.</h2>
+          <p>Every real-person digital human requires explicit permission. No exceptions.</p>
+        </div>
+        <div class="trust-grid">
+          <div class="trust-card glass-card">
+            <h4>&#9989; Consent Capture</h4>
+            <p>Every real-person twin requires explicit consent recording. You say it out loud, we log it, and it's stored permanently.</p>
+          </div>
+          <div class="trust-card glass-card">
+            <h4>&#128274; Stored Logs</h4>
+            <p>All consent records are stored with timestamps and user agent. Admin review is available for every account created.</p>
+          </div>
+          <div class="trust-card glass-card">
+            <h4>&#128683; Takedown Controls</h4>
+            <p>Report abuse. Admin can instantly take down any digital human. Full moderation toolkit built in from day one.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRICING -->
+    <section class="section-wrap" id="pricing">
+      <div class="section-head">
         <h2>Simple, credit-based pricing</h2>
-        <p class="pricing-sub">Pay per video generation. No hidden fees. Cancel any time.</p>
-        <div class="plans">
-          <div class="plan-card">
-            <div class="plan-name">Free</div>
-            <div class="plan-price">$0<span>/mo</span></div>
-            <div class="plan-credits">30 credits / month</div>
-            <ul class="plan-features">
-              <li>6 Talking Head videos</li>
-              <li>9:16 portrait export</li>
-              <li>AI voice generation</li>
-              <li>Word-level captions</li>
-              <li>1 Digital Human</li>
-            </ul>
-            <button class="btn btn-ghost btn-full" id="plan-free-btn">Get Started Free</button>
-          </div>
-          <div class="plan-card featured">
-            <div class="plan-badge">Most Popular</div>
-            <div class="plan-name">Starter</div>
-            <div class="plan-price">$19<span>/mo</span></div>
-            <div class="plan-credits">200 credits / month</div>
-            <ul class="plan-features">
-              <li>40 Talking Head videos</li>
-              <li>20 Ad videos</li>
-              <li>All export formats</li>
-              <li>Priority processing</li>
-              <li>3 Digital Humans</li>
-              <li>API access</li>
-            </ul>
-            <button class="btn btn-primary btn-full" id="plan-starter-btn">Start Starter Plan</button>
-          </div>
-          <div class="plan-card">
-            <div class="plan-name">Pro</div>
-            <div class="plan-price">$49<span>/mo</span></div>
-            <div class="plan-credits">600 credits / month</div>
-            <ul class="plan-features">
-              <li>120 Talking Head videos</li>
-              <li>All video modes</li>
-              <li>All export formats</li>
-              <li>ClipForge integration</li>
-              <li>Unlimited Digital Humans</li>
-              <li>Full API access</li>
-            </ul>
-            <button class="btn btn-ghost btn-full" id="plan-pro-btn">Start Pro Plan</button>
-          </div>
-          <div class="plan-card">
-            <div class="plan-name">Enterprise</div>
-            <div class="plan-price">$149<span>/mo</span></div>
-            <div class="plan-credits">2,000 credits / month</div>
-            <ul class="plan-features">
-              <li>400 Talking Head videos</li>
-              <li>All video modes</li>
-              <li>Cloud GPU workers</li>
-              <li>White-label option</li>
-              <li>Unlimited everything</li>
-              <li>Priority support</li>
-            </ul>
-            <button class="btn btn-ghost btn-full" id="plan-ent-btn">Contact Sales</button>
-          </div>
+        <p>Pay per video generation. No hidden fees. Cancel any time.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;max-width:1000px;margin:0 auto">
+        <div class="plan-card-2026 glass-card">
+          <div class="plan-name">Free</div>
+          <div class="plan-price">$0<span>/mo</span></div>
+          <div class="plan-credits">30 credits / month</div>
+          <ul class="plan-features">
+            <li>6 Talking Head videos</li>
+            <li>9:16 portrait export</li>
+            <li>AI voice generation</li>
+            <li>Word-level captions</li>
+            <li>1 Digital Human</li>
+          </ul>
+          <button class="btn btn-ghost btn-full" data-goto="dashboard">Get Started Free</button>
+        </div>
+        <div class="plan-card-2026 glass-card featured">
+          <div class="plan-badge">Most Popular</div>
+          <div class="plan-name">Starter</div>
+          <div class="plan-price">$19<span>/mo</span></div>
+          <div class="plan-credits">200 credits / month</div>
+          <ul class="plan-features">
+            <li>40 Talking Head videos</li>
+            <li>20 Ad videos</li>
+            <li>All export formats</li>
+            <li>Priority processing</li>
+            <li>3 Digital Humans</li>
+            <li>API access</li>
+          </ul>
+          <button class="btn btn-primary btn-full" data-goto="dashboard">Start Starter Plan</button>
+        </div>
+        <div class="plan-card-2026 glass-card">
+          <div class="plan-name">Pro</div>
+          <div class="plan-price">$49<span>/mo</span></div>
+          <div class="plan-credits">600 credits / month</div>
+          <ul class="plan-features">
+            <li>120 Talking Head videos</li>
+            <li>All video modes</li>
+            <li>All export formats</li>
+            <li>ClipForge integration</li>
+            <li>Unlimited Digital Humans</li>
+            <li>Full API access</li>
+          </ul>
+          <button class="btn btn-ghost btn-full" data-goto="dashboard">Start Pro Plan</button>
+        </div>
+        <div class="plan-card-2026 glass-card">
+          <div class="plan-name">Enterprise</div>
+          <div class="plan-price">$149<span>/mo</span></div>
+          <div class="plan-credits">2,000 credits / month</div>
+          <ul class="plan-features">
+            <li>400 Talking Head videos</li>
+            <li>All video modes</li>
+            <li>Cloud GPU workers</li>
+            <li>White-label option</li>
+            <li>Unlimited everything</li>
+            <li>Priority support</li>
+          </ul>
+          <button class="btn btn-ghost btn-full" data-goto="dashboard">Contact Sales</button>
         </div>
       </div>
     </section>
 
-    <!-- CTA -->
-    <section class="cta">
-      <h2>Start creating in 60 seconds</h2>
-      <p>No credit card. No camera. No studio. Just sign up and generate your first video.</p>
-      <button class="btn-hero btn-hero-primary" id="cta-start-btn">Create Your Free Account →</button>
+    <!-- FINAL CTA -->
+    <section class="section-wrap" style="text-align:center;padding-top:100px;padding-bottom:100px;background:radial-gradient(ellipse 70% 60% at 50% 100%,rgba(124,92,252,.18) 0%,transparent 70%)">
+      <h2 style="font-size:clamp(2rem,5vw,3rem);font-weight:900;margin-bottom:16px">Your AI twin is ready to be created.</h2>
+      <p style="color:var(--text2);font-size:1.05rem;margin-bottom:36px">Start with camera capture in 60 seconds &mdash; no credit card required.</p>
+      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+        <button class="btn-hero-2026 btn-hero-primary-2026" id="cta-camera-btn">&#128248; Start Camera Capture</button>
+        <button class="btn-hero-2026 btn-hero-ghost-2026" id="cta-login-btn">Sign In &rarr;</button>
+      </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="hp-footer">
-      <p>Digital Human Studio · AI Video Generation Platform · Built for creators</p>
-      <p style="margin-top:6px">Runs locally on your Mac · FFmpeg + Wav2Lip + Python workers</p>
+    <!-- FOOTER -->
+    <footer class="hp-footer-2026">
+      <div class="hp-footer-grid">
+        <div>
+          <div class="hp-footer-logo">Digital Human OS</div>
+          <p style="color:var(--text3);font-size:.82rem;margin-top:8px;line-height:1.6">Built for creators. Powered by AI.<br>Running on your machine.</p>
+        </div>
+        <div>
+          <div class="hp-footer-col-title">Product</div>
+          <div class="hp-footer-links">
+            <a href="#how">How it Works</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#safety">Safety</a>
+            <a href="https://clipforge.ai" target="_blank">ClipForge AI</a>
+          </div>
+        </div>
+        <div>
+          <div class="hp-footer-col-title">Create</div>
+          <div class="hp-footer-links">
+            <a href="#" id="footer-camera-btn">Camera Capture</a>
+            <a href="#" id="footer-upload-btn">Upload Files</a>
+            <a href="#" id="footer-gen-btn">Generate Human</a>
+          </div>
+        </div>
+        <div>
+          <div class="hp-footer-col-title">Legal</div>
+          <div class="hp-footer-links">
+            <a href="#">Privacy Policy</a>
+            <a href="#">Terms of Service</a>
+            <a href="#">Consent Policy</a>
+          </div>
+        </div>
+      </div>
+      <div class="hp-footer-bottom">
+        <span>Digital Human OS &copy; 2026</span>
+        <span>FFmpeg + Wav2Lip + Python workers</span>
+      </div>
     </footer>
-  </div>
+
+  </div><!-- /#homepage -->
 
   <!-- ── App Shell (shown when logged in) ── -->
   <div id="app-shell" style="display:none"></div>

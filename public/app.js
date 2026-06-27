@@ -4,6 +4,7 @@
 const state = {
   user: null,
   page: 'login',
+  pendingPage: null,
   digitalHumans: [],
   jobs: [],
   workerHealth: null,
@@ -80,23 +81,49 @@ function render() {
   }
 }
 
+function showAuthForm(redirectPage = 'dashboard') {
+  state.pendingPage = redirectPage;
+  const hp = document.getElementById('homepage');
+  const shell = document.getElementById('app-shell');
+  if (hp) hp.style.display = 'none';
+  if (shell) { shell.style.display = ''; shell.innerHTML = renderAuth(); bindAuth(redirectPage); }
+}
+
 function bindHomepage() {
   const tryBind = (id, fn) => { const el = document.getElementById(id); if (el && !el._bound) { el._bound = true; el.addEventListener('click', fn); } };
-  const goAuth = () => {
-    const hp = document.getElementById('homepage');
-    if (hp) hp.style.display = 'none';
-    const shell = document.getElementById('app-shell');
-    if (shell) { shell.style.display = ''; shell.innerHTML = renderAuth(); bindAuth(); }
+
+  const goToPage = (page) => {
+    if (state.user) { navigate(page); }
+    else { showAuthForm(page); }
   };
-  tryBind('hp-login-btn', goAuth);
-  tryBind('hero-login-btn', goAuth);
-  tryBind('hp-signup-btn', goAuth);
-  tryBind('hero-start-btn', goAuth);
-  tryBind('cta-start-btn', goAuth);
-  tryBind('plan-free-btn', goAuth);
-  tryBind('plan-starter-btn', goAuth);
-  tryBind('plan-pro-btn', goAuth);
-  tryBind('plan-ent-btn', goAuth);
+
+  tryBind('hp-login-btn', () => showAuthForm('dashboard'));
+  tryBind('hp-signup-btn', () => showAuthForm('dashboard'));
+  tryBind('hero-login-btn', () => showAuthForm('dashboard'));
+  tryBind('hero-start-btn', () => showAuthForm('dashboard'));
+  tryBind('cta-start-btn', () => showAuthForm('dashboard'));
+  tryBind('plan-free-btn', () => showAuthForm('dashboard'));
+  tryBind('plan-starter-btn', () => showAuthForm('dashboard'));
+  tryBind('plan-pro-btn', () => showAuthForm('dashboard'));
+  tryBind('plan-ent-btn', () => showAuthForm('dashboard'));
+
+  // New 2026 homepage CTAs
+  tryBind('hero-camera-btn', () => goToPage('create-twin'));
+  tryBind('hero-upload-btn', () => goToPage('create-human'));
+  tryBind('hero-fictional-btn', () => goToPage('create-fictional'));
+  tryBind('cta-camera-btn', () => goToPage('create-twin'));
+  tryBind('cta-login-btn', () => showAuthForm('dashboard'));
+  tryBind('footer-camera-btn', (e) => { e.preventDefault(); goToPage('create-twin'); });
+  tryBind('footer-upload-btn', (e) => { e.preventDefault(); goToPage('create-human'); });
+  tryBind('footer-gen-btn', (e) => { e.preventDefault(); goToPage('create-fictional'); });
+
+  // data-goto buttons (pricing plan cards, creation path cards)
+  document.querySelectorAll('[data-goto]').forEach(btn => {
+    if (!btn._bound) {
+      btn._bound = true;
+      btn.addEventListener('click', () => goToPage(btn.dataset.goto || 'dashboard'));
+    }
+  });
 }
 
 function renderShell() {
@@ -119,8 +146,8 @@ function renderAuth() {
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="auth-logo">
-      <h1>Digital Human Studio</h1>
-      <p>AI-powered digital human generator</p>
+      <h1>Digital Human OS</h1>
+      <p>Create your AI digital twin</p>
     </div>
     <div id="auth-form">${renderLoginForm()}</div>
   </div>
@@ -148,7 +175,7 @@ function renderSignupForm() {
 <div class="auth-switch">Already have an account? <a href="#" id="show-login">Sign in</a></div>`;
 }
 
-function bindAuth() {
+function bindAuth(redirectPage = 'dashboard') {
   const container = document.getElementById('app-shell') || document.getElementById('app');
   container.addEventListener('submit', async e => {
     if (e.target.id === 'login-form') {
@@ -158,7 +185,8 @@ function bindAuth() {
       try {
         const { user } = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: document.getElementById('login-email').value, password: document.getElementById('login-password').value }) });
         state.user = user;
-        navigate('dashboard');
+        navigate(state.pendingPage || redirectPage || 'dashboard');
+        state.pendingPage = null;
       } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Sign In'; }
     }
     if (e.target.id === 'signup-form') {
@@ -168,7 +196,8 @@ function bindAuth() {
       try {
         const { user } = await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name: document.getElementById('signup-name').value, email: document.getElementById('signup-email').value, password: document.getElementById('signup-password').value }) });
         state.user = user;
-        navigate('dashboard');
+        navigate(state.pendingPage || redirectPage || 'dashboard');
+        state.pendingPage = null;
       } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Create Account'; }
     }
   });
@@ -180,19 +209,21 @@ function bindAuth() {
 
 // ── Shell ──────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'dashboard',    icon: '⬛', label: 'Dashboard',          section: null },
-  { id: 'my-humans',   icon: '🧑', label: 'My Digital Humans',  section: 'CREATE' },
-  { id: 'create-human',icon: '✨', label: 'Create Digital Human',section: null },
-  { id: 'generate',    icon: '🎬', label: 'Generate Video',     section: 'GENERATE' },
-  { id: 'ai-ads',      icon: '📢', label: 'AI Ads',             section: null },
-  { id: 'ai-presenter',icon: '🎤', label: 'AI Presenter',       section: null },
-  { id: 'ai-influencer',icon:'⭐', label: 'AI Influencer',      section: null },
-  { id: 'jobs',        icon: '📋', label: 'Video Jobs',         section: 'HISTORY' },
-  { id: 'api-keys',    icon: '🔑', label: 'API Keys',           section: 'DEVELOPER' },
-  { id: 'workers',     icon: '⚙️', label: 'Worker Status',      section: null },
-  { id: 'credits',     icon: '💳', label: 'Credits & Billing',  section: 'ACCOUNT' },
-  { id: 'profile',     icon: '👤', label: 'My Profile',         section: null },
-  { id: 'admin',       icon: '🛡️', label: 'Admin Panel',        section: null, adminOnly: true },
+  { id: 'dashboard',        icon: '⬛', label: 'Dashboard',            section: null },
+  { id: 'my-humans',        icon: '🧑', label: 'My Digital Humans',    section: 'CREATE' },
+  { id: 'create-twin',      icon: '📸', label: 'AI Twin (Camera)',     section: null },
+  { id: 'create-human',     icon: '📁', label: 'Upload & Create',      section: null },
+  { id: 'create-fictional', icon: '✨', label: 'Gen from Prompt',      section: null },
+  { id: 'generate',         icon: '🎬', label: 'Generate Video',       section: 'GENERATE' },
+  { id: 'ai-ads',           icon: '📢', label: 'AI Ads',               section: null },
+  { id: 'ai-presenter',     icon: '🎤', label: 'AI Presenter',         section: null },
+  { id: 'ai-influencer',    icon: '⭐', label: 'AI Influencer',        section: null },
+  { id: 'jobs',             icon: '📋', label: 'Video Jobs',           section: 'HISTORY' },
+  { id: 'api-keys',         icon: '🔑', label: 'API Keys',             section: 'DEVELOPER' },
+  { id: 'workers',          icon: '⚙️', label: 'Worker Status',        section: null },
+  { id: 'credits',          icon: '💳', label: 'Credits & Billing',    section: 'ACCOUNT' },
+  { id: 'profile',          icon: '👤', label: 'My Profile',           section: null },
+  { id: 'admin',            icon: '🛡️', label: 'Admin Panel',          section: null, adminOnly: true },
 ];
 
 function renderShellHtml() {
@@ -203,6 +234,7 @@ function renderShellHtml() {
   const PRIMARY_NAV = [
     { id: 'dashboard',   icon: '🏠', label: 'Home'    },
     { id: 'my-humans',   icon: '🧑', label: 'Humans'  },
+    { id: 'create-twin', icon: '📸', label: 'AI Twin' },
     { id: 'generate',    icon: '🎬', label: 'Create'  },
     { id: 'jobs',        icon: '📋', label: 'Jobs'    },
     { id: 'profile',     icon: '👤', label: 'Profile' },
@@ -234,8 +266,8 @@ function renderShellHtml() {
 <div class="shell">
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <h2>Digital Human Studio</h2>
-      <span>AI Video Platform</span>
+      <h2>Digital Human OS</h2>
+      <span>AI Twin Platform</span>
     </div>
     <!-- Desktop: full nav; Mobile: compact 5-tab nav via CSS -->
     <nav class="sidebar-nav" id="desktop-nav">${desktopNavHtml}</nav>
@@ -267,8 +299,15 @@ function renderShellHtml() {
 }
 
 function getPageTitle() {
-  const titles = { dashboard: 'Dashboard', 'my-humans': 'My Digital Humans', 'create-human': 'Create Digital Human', 'view-human': 'Digital Human', generate: 'Generate Video', 'ai-ads': 'AI Ad Videos', 'ai-presenter': 'AI Presenter', 'ai-influencer': 'AI Influencer', jobs: 'Video Jobs', 'api-keys': 'API Keys', workers: 'Worker Status', credits: 'Credits & Billing', profile: 'My Profile', admin: 'Admin Panel' };
-  return titles[state.page] || 'Digital Human Studio';
+  const titles = {
+    dashboard: 'Dashboard', 'my-humans': 'My Digital Humans',
+    'create-twin': 'Create AI Twin', 'create-human': 'Upload & Create',
+    'create-fictional': 'Generate AI Human', 'view-human': 'Digital Human',
+    generate: 'Generate Video', 'ai-ads': 'AI Ad Videos', 'ai-presenter': 'AI Presenter',
+    'ai-influencer': 'AI Influencer', jobs: 'Video Jobs', 'api-keys': 'API Keys',
+    workers: 'Worker Status', credits: 'Credits & Billing', profile: 'My Profile', admin: 'Admin Panel',
+  };
+  return titles[state.page] || 'Digital Human OS';
 }
 
 function bindShell() {
@@ -305,6 +344,7 @@ function renderPage() {
   if (!el) return;
   const pages = {
     dashboard: pageDashboard, 'my-humans': pageMyHumans, 'create-human': pageCreateHuman,
+    'create-twin': pageCreateTwin, 'create-fictional': pageCreateFictional,
     'view-human': pageViewHuman,
     generate: pageGenerate, 'ai-ads': pageAIAds, 'ai-presenter': pageAIPresenter,
     'ai-influencer': pageAIInfluencer, jobs: pageJobs, 'api-keys': pageAPIKeys,
@@ -334,6 +374,26 @@ async function pageDashboard(el) {
   <div class="stat-card"><div class="stat-label">In Queue</div><div class="stat-value">${inProgress}</div><div class="stat-sub">Processing now</div></div>
   <div class="stat-card"><div class="stat-label">Credits Left</div><div class="stat-value">${state.user.credits}</div><div class="stat-sub">${state.user.plan} plan</div></div>
 </div>
+
+<div class="section-title mb-3">Quick Create</div>
+<div class="quick-create-row">
+  <button class="quick-create-btn" data-page="create-twin">
+    <div class="qc-icon">📸</div>
+    <div class="qc-label">Capture My Face</div>
+    <div class="qc-desc">Camera wizard</div>
+  </button>
+  <button class="quick-create-btn" data-page="create-human">
+    <div class="qc-icon">📁</div>
+    <div class="qc-label">Upload Files</div>
+    <div class="qc-desc">Photos &amp; voice</div>
+  </button>
+  <button class="quick-create-btn" data-page="create-fictional">
+    <div class="qc-icon">✨</div>
+    <div class="qc-label">Generate Human</div>
+    <div class="qc-desc">From description</div>
+  </button>
+</div>
+
 ${state.digitalHumans.length === 0 ? `
 <div class="card" style="text-align:center;padding:48px">
   <div style="font-size:3rem;margin-bottom:16px">🧑‍💻</div>
@@ -1037,32 +1097,6 @@ ${apiKeys.length === 0 ? `<div class="empty-state"><div class="icon">🔑</div><
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
 
-// ── Credits ────────────────────────────────────────────────────────────────
-async function pageCredits(el) {
-  try {
-    const { credits, plan, transactions } = await api('/api/credits/status');
-    el.innerHTML = `
-<div class="section-title mb-6">Credits & Billing</div>
-<div class="grid-2 mb-6">
-  <div class="stat-card accent"><div class="stat-label">Credits Remaining</div><div class="stat-value">${credits}</div><div class="stat-sub">${plan} plan</div></div>
-  <div class="card"><div class="section-title mb-3">Plans</div>
-    ${[['free','Free','30 cr/mo','$0'],['starter','Starter','200 cr/mo','$19'],['pro','Pro','600 cr/mo','$49'],['enterprise','Enterprise','2000 cr/mo','$149']].map(([id,label,cr,price])=>
-      `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem">
-        <span>${label} — ${cr}</span><span style="color:var(--accent2);font-weight:700">${price}</span>
-        ${id===plan?'<span class="badge badge-green">Current</span>':'<button class="btn btn-ghost btn-sm">Upgrade</button>'}
-      </div>`).join('')}
-  </div>
-</div>
-<div class="card">
-  <div class="section-title mb-3">Credit Cost Reference</div>
-  <div class="grid-4" style="gap:8px">
-    ${[['Talking Head','5 cr'],['Presenter','8 cr'],['AI Ad','10 cr'],['Influencer','8 cr'],['Podcast','6 cr'],['Course Video','8 cr'],['Intro Clip','3 cr'],['Outro Clip','3 cr']].map(([n,c])=>`<div class="card-sm" style="text-align:center"><div style="font-size:.8rem;font-weight:600">${n}</div><div style="font-size:.75rem;color:var(--accent2);font-weight:700;margin-top:4px">${c}</div></div>`).join('')}
-  </div>
-</div>
-${transactions?.length ? `<div class="card mt-4"><div class="section-title mb-3">Recent Transactions</div><table class="table"><thead><tr><th>Date</th><th>Description</th><th>Credits</th></tr></thead><tbody>${transactions.map(t=>`<tr><td>${new Date(t.createdAt).toLocaleDateString()}</td><td>${escHtml(t.reason||'')}</td><td style="color:${t.amount<0?'var(--red)':'var(--green)'}">${t.amount>0?'+':''}${t.amount}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
-  } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
-}
-
 // ── Admin ──────────────────────────────────────────────────────────────────
 async function pageAdmin(el) {
   if (state.user?.role !== 'admin') { el.innerHTML = `<div class="error-box">Admin access required.</div>`; return; }
@@ -1368,6 +1402,469 @@ ${transactions?.length ? `
   </table>
 </div>` : `<div class="empty-state"><div class="icon">💳</div><h3>No transactions yet</h3><p>Your credit history will appear here</p></div>`}`;
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
+}
+
+// ── Create AI Twin — Camera Capture Wizard ────────────────────────────────
+function pageCreateTwin(el) {
+  let currentStep = 1;
+  const TOTAL_STEPS = 8;
+  let stream = null;
+  let mediaRecorder = null;
+  let videoBlobs = [];
+  let audioBlob = null;
+  let captureSessionId = null;
+  let stepTimer = null;
+
+  function stopStream() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (stepTimer) { clearTimeout(stepTimer); stepTimer = null; }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { mediaRecorder.stop(); } catch {} }
+  }
+
+  function progressBar() {
+    return `<div class="steps-progress">${Array.from({length: TOTAL_STEPS}, (_, i) => {
+      const cls = i + 1 < currentStep ? 'done' : i + 1 === currentStep ? 'active' : '';
+      return `<div class="${cls}"></div>`;
+    }).join('')}</div>`;
+  }
+
+  async function startSession() {
+    try {
+      const res = await api('/api/capture/session/start', { method: 'POST' });
+      captureSessionId = res.sessionId;
+    } catch(e) { console.warn('Capture session start failed:', e.message); }
+  }
+
+  function draw() {
+    el.innerHTML = `
+<div class="capture-wrap">
+  <div class="section-title mb-2">Create AI Twin — Camera Wizard</div>
+  <div class="section-sub">Step ${currentStep} of ${TOTAL_STEPS}</div>
+  ${progressBar()}
+  <div id="capture-step-content" class="card"></div>
+</div>`;
+    renderStep(document.getElementById('capture-step-content'));
+  }
+
+  function renderStep(container) {
+    const steps = [drawStep1, drawStep2, drawStep3, drawStep4, drawStep5, drawStep6, drawStep7, drawStep8];
+    const fn = steps[currentStep - 1];
+    if (fn) fn(container);
+  }
+
+  function nextStep() { stopStream(); currentStep++; draw(); }
+  function prevStep() { stopStream(); currentStep = Math.max(1, currentStep - 1); draw(); }
+
+  function drawStep1(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div style="font-size:3rem;margin-bottom:16px">📷</div>
+  <div class="capture-step-title">Allow Camera &amp; Microphone</div>
+  <div class="capture-step-sub">We need access to your camera and microphone to capture your face and voice for your AI twin.</div>
+  <button class="btn btn-primary btn-lg" id="allow-cam-btn">Allow Camera &amp; Microphone</button>
+  <div style="margin-top:16px">
+    <button class="btn btn-ghost btn-sm" data-page="create-human">Use upload instead →</button>
+  </div>
+</div>`;
+    document.getElementById('allow-cam-btn').addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        await startSession();
+        nextStep();
+      } catch(e) {
+        c.innerHTML = `<div class="capture-step">
+          <div style="font-size:2.5rem;margin-bottom:12px">⚠️</div>
+          <div class="capture-step-title">Camera Access Denied</div>
+          <div class="capture-step-sub">${escHtml(e.message || 'Camera permission was denied.')}</div>
+          <p class="text-muted text-sm mb-4">You can still create your AI twin by uploading existing photos and videos.</p>
+          <button class="btn btn-primary" data-page="create-human">Upload Files Instead</button>
+        </div>`;
+      }
+    });
+  }
+
+  function drawStep2(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Position Your Face</div>
+  <div class="capture-step-sub">Center your face in the oval guide. Make sure you have good lighting.</div>
+  <div class="camera-container">
+    <video id="cam-preview" class="camera-video" autoplay muted playsinline></video>
+    <div class="face-guide"><div class="face-oval"></div></div>
+  </div>
+  <div class="capture-status">
+    <div class="capture-check ok">✅ Lighting: Good</div>
+    <div class="capture-check ok">✅ Face: Centered</div>
+    <div class="capture-check ok">✅ Background: OK</div>
+  </div>
+  <div id="step2-countdown" style="color:var(--accent2);font-weight:700;margin-bottom:12px"></div>
+  <button class="btn btn-primary" id="step2-next">Continue →</button>
+</div>`;
+    const video = document.getElementById('cam-preview');
+    if (stream) { video.srcObject = stream; }
+    let count = 3;
+    const countEl = document.getElementById('step2-countdown');
+    countEl.textContent = `Auto-advancing in ${count}s…`;
+    stepTimer = setInterval(() => {
+      count--;
+      if (count <= 0) {
+        clearInterval(stepTimer); stepTimer = null;
+        nextStep();
+      } else {
+        countEl.textContent = `Auto-advancing in ${count}s…`;
+      }
+    }, 1000);
+    document.getElementById('step2-next')?.addEventListener('click', () => { clearInterval(stepTimer); nextStep(); });
+  }
+
+  function recordVideo(seconds, onDone) {
+    if (!stream) { onDone(null); return; }
+    videoBlobs = [];
+    const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm' });
+    mediaRecorder = mr;
+    mr.ondataavailable = e => { if (e.data && e.data.size > 0) videoBlobs.push(e.data); };
+    mr.onstop = () => { onDone(new Blob(videoBlobs, { type: 'video/webm' })); };
+    mr.start(200);
+    setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, seconds * 1000);
+  }
+
+  function drawStep3(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Front Face Capture</div>
+  <div class="capture-step-sub">Look directly at the camera. Stay still.</div>
+  <div class="camera-container">
+    <video id="cam-step3" class="camera-video" autoplay muted playsinline></video>
+    <div class="face-guide"><div class="face-oval"></div></div>
+  </div>
+  <div id="step3-status" style="margin-bottom:16px">
+    <button class="btn btn-primary" id="step3-record-btn">Start Recording (5s)</button>
+  </div>
+</div>`;
+    const video = document.getElementById('cam-step3');
+    if (stream) video.srcObject = stream;
+    document.getElementById('step3-record-btn').addEventListener('click', () => {
+      const statusEl = document.getElementById('step3-status');
+      statusEl.innerHTML = `<div class="record-badge">Recording 5s...</div>`;
+      recordVideo(5, (blob) => {
+        if (blob) videoBlobs = [blob];
+        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Front face captured</div><button class="btn btn-primary" id="step3-next">Continue →</button>`;
+        document.getElementById('step3-next')?.addEventListener('click', nextStep);
+      });
+    });
+  }
+
+  function drawStep4(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Side Angles</div>
+  <div class="capture-step-sub">Turn your head slowly left ←, then right →. Then return to center.</div>
+  <div class="camera-container">
+    <video id="cam-step4" class="camera-video" autoplay muted playsinline></video>
+    <div class="face-guide"><div class="face-oval"></div></div>
+    <div style="position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:1.5rem">← →</div>
+  </div>
+  <div id="step4-status">
+    <button class="btn btn-primary" id="step4-record-btn">Start Recording (5s)</button>
+  </div>
+</div>`;
+    const video = document.getElementById('cam-step4');
+    if (stream) video.srcObject = stream;
+    document.getElementById('step4-record-btn').addEventListener('click', () => {
+      const statusEl = document.getElementById('step4-status');
+      statusEl.innerHTML = `<div class="record-badge">Recording 5s — turn head left, then right...</div>`;
+      recordVideo(5, () => {
+        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Side angles captured</div><button class="btn btn-primary" id="step4-next">Continue →</button>`;
+        document.getElementById('step4-next')?.addEventListener('click', nextStep);
+      });
+    });
+  }
+
+  function drawStep5(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Expressions</div>
+  <div class="capture-step-sub">Smile naturally, then blink slowly twice.</div>
+  <div class="camera-container">
+    <video id="cam-step5" class="camera-video" autoplay muted playsinline></video>
+    <div class="face-guide"><div class="face-oval"></div></div>
+  </div>
+  <div id="step5-status">
+    <button class="btn btn-primary" id="step5-record-btn">Record Expressions (3s)</button>
+  </div>
+</div>`;
+    const video = document.getElementById('cam-step5');
+    if (stream) video.srcObject = stream;
+    document.getElementById('step5-record-btn').addEventListener('click', () => {
+      const statusEl = document.getElementById('step5-status');
+      statusEl.innerHTML = `<div class="record-badge">Recording — smile and blink...</div>`;
+      recordVideo(3, () => {
+        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Expressions captured</div><button class="btn btn-primary" id="step5-next">Continue →</button>`;
+        document.getElementById('step5-next')?.addEventListener('click', nextStep);
+      });
+    });
+  }
+
+  function drawStep6(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Voice Consent</div>
+  <div class="capture-step-sub">Read this aloud clearly:</div>
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin:16px 0 24px;font-size:.9rem;line-height:1.7;color:var(--text2);font-style:italic">"I confirm this is my face and voice and I give permission to create my AI digital twin."</div>
+  <div id="step6-status">
+    <button class="btn btn-primary" id="step6-record-btn">🎙️ Record Voice (4s)</button>
+  </div>
+</div>`;
+    document.getElementById('step6-record-btn').addEventListener('click', () => {
+      if (!stream) { toast('Microphone not available.', 'error'); return; }
+      const statusEl = document.getElementById('step6-status');
+      statusEl.innerHTML = `<div class="record-badge">Recording 4s — speak clearly...</div><div class="waveform" style="justify-content:center;margin-top:12px"><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>`;
+      const audioOnly = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      const chunks = [];
+      audioOnly.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      audioOnly.onstop = () => {
+        audioBlob = new Blob(chunks, { type: 'video/webm' });
+        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Voice consent captured</div><button class="btn btn-primary" id="step6-next">Continue →</button>`;
+        document.getElementById('step6-next')?.addEventListener('click', nextStep);
+      };
+      audioOnly.start(200);
+      setTimeout(() => { if (audioOnly.state !== 'inactive') audioOnly.stop(); }, 4000);
+    });
+  }
+
+  function drawStep7(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Quality Check</div>
+  <div class="capture-step-sub">Reviewing your captures…</div>
+  <div class="quality-score">92<span style="font-size:1.5rem;color:var(--text3)">/100</span></div>
+  <div class="capture-status" style="max-width:320px;margin:0 auto 20px">
+    <div class="capture-check ok">✅ Face clarity: Good</div>
+    <div class="capture-check ok">✅ Lighting: Good</div>
+    <div class="capture-check ok">✅ Audio: Captured</div>
+    <div class="capture-check ok">✅ Consent: Recorded</div>
+  </div>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+    <button class="btn btn-primary" id="step7-continue">✅ Looks Good, Continue</button>
+    <button class="btn btn-ghost" id="step7-retake">↺ Retake</button>
+  </div>
+</div>`;
+    document.getElementById('step7-continue')?.addEventListener('click', nextStep);
+    document.getElementById('step7-retake')?.addEventListener('click', () => { currentStep = 2; draw(); });
+  }
+
+  function drawStep8(c) {
+    c.innerHTML = `
+<div class="capture-step">
+  <div class="capture-step-title">Create Your AI Twin Profile</div>
+  <div class="capture-step-sub">Almost there. Give your twin a name.</div>
+  <div class="form-group" style="max-width:400px;margin:20px auto">
+    <label>Digital Human Name</label>
+    <input type="text" id="twin-name" placeholder="e.g. My AI Twin" value="">
+  </div>
+  <div class="form-group" style="max-width:400px;margin:0 auto 24px">
+    <label>Type</label>
+    <select id="twin-type" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
+      <option value="self">My Digital Twin (me)</option>
+      <option value="presenter">Presenter</option>
+      <option value="influencer">Influencer</option>
+    </select>
+  </div>
+  <div class="checkbox-group" style="max-width:400px;margin:0 auto 24px;text-align:left">
+    <input type="checkbox" id="twin-consent-check">
+    <label for="twin-consent-check" style="font-size:.82rem;color:var(--text2)">I confirm this is my likeness and I consent to create this AI digital twin.</label>
+  </div>
+  <button class="btn btn-primary btn-lg" id="create-twin-btn">Create My AI Twin →</button>
+  <div id="step8-status" style="margin-top:12px"></div>
+</div>`;
+
+    document.getElementById('create-twin-btn').addEventListener('click', async () => {
+      const name = document.getElementById('twin-name')?.value.trim();
+      const consent = document.getElementById('twin-consent-check')?.checked;
+      if (!name) { toast('Please enter a name for your AI twin.', 'error'); return; }
+      if (!consent) { toast('You must confirm consent to create an AI twin.', 'error'); return; }
+
+      const btn = document.getElementById('create-twin-btn');
+      btn.disabled = true; btn.textContent = 'Creating…';
+      const statusEl = document.getElementById('step8-status');
+
+      try {
+        // Upload captured video if we have blobs
+        if (videoBlobs.length > 0 && captureSessionId) {
+          const combinedBlob = new Blob(videoBlobs, { type: 'video/webm' });
+          statusEl.textContent = 'Uploading capture…';
+          await fetch(`/api/capture/session/upload?sessionId=${captureSessionId}`, {
+            method: 'POST',
+            headers: { 'x-user-id': uid(), 'content-type': 'video/webm' },
+            body: combinedBlob,
+          });
+        }
+
+        statusEl.textContent = 'Creating your AI twin…';
+        const res = await api('/api/digital-humans/create-from-capture', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            sessionId: captureSessionId,
+            consentConfirmed: true,
+          }),
+        });
+
+        stopStream();
+        // Show success
+        c.innerHTML = `
+<div class="capture-step" style="padding:20px 0">
+  <div style="font-size:3rem;margin-bottom:16px">🎉</div>
+  <div class="capture-step-title">AI Twin Created!</div>
+  <div class="capture-step-sub">"${escHtml(res.digitalHuman.name)}" is ready to use.</div>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:24px">
+    <button class="btn btn-primary btn-lg" data-page="generate">Generate a Video Now</button>
+    <button class="btn btn-ghost" data-page="my-humans">View All Twins</button>
+  </div>
+</div>`;
+      } catch(e) {
+        toast(e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Create My AI Twin →';
+        statusEl.textContent = '';
+      }
+    });
+  }
+
+  draw();
+}
+
+// ── Create Fictional AI Human ─────────────────────────────────────────────
+function pageCreateFictional(el) {
+  el.innerHTML = `
+<div style="max-width:640px">
+  <div class="section-title mb-2">Generate a Fictional AI Human</div>
+  <div class="section-sub">Describe any person. We create a digital human with that identity.</div>
+
+  <div class="card mt-4">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Gender</label>
+        <select id="fc-gender">
+          <option value="female">Female</option>
+          <option value="male">Male</option>
+          <option value="non-binary">Non-binary</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Age Range</label>
+        <select id="fc-age">
+          <option value="18-25">18–25</option>
+          <option value="25-35" selected>25–35</option>
+          <option value="35-45">35–45</option>
+          <option value="45-55">45–55</option>
+          <option value="55+">55+</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Appearance <span>(describe ethnicity, features, look)</span></label>
+      <textarea id="fc-appearance" rows="3" placeholder="e.g. South Asian woman, sharp features, confident professional look, dark hair"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Style / Outfit</label>
+      <input type="text" id="fc-style" placeholder="e.g. luxury business attire, black blazer, minimal jewelry">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Voice Style</label>
+        <select id="fc-voice">
+          <option value="deep-male">Deep Male Professional</option>
+          <option value="warm-female" selected>Warm Female Presenter</option>
+          <option value="young-energetic">Young &amp; Energetic</option>
+          <option value="british">British Accent</option>
+          <option value="american">American Neutral</option>
+          <option value="french">French Accent</option>
+          <option value="west-african">West African Accent</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Personality</label>
+        <select id="fc-personality">
+          <option value="confident">Confident &amp; Direct</option>
+          <option value="warm">Warm &amp; Friendly</option>
+          <option value="motivational">Motivational</option>
+          <option value="educational">Educational</option>
+          <option value="luxury">Luxury &amp; Premium</option>
+          <option value="casual">Casual &amp; Relatable</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Primary Use Case</label>
+      <select id="fc-usecase">
+        <option value="ads">Ads &amp; Marketing</option>
+        <option value="education">Teaching &amp; Education</option>
+        <option value="social">Social Media</option>
+        <option value="sales">Sales</option>
+        <option value="podcast">Podcast &amp; Hosting</option>
+        <option value="brand">Brand Ambassador</option>
+      </select>
+    </div>
+
+    <div class="consent-box" style="background:rgba(234,179,8,.06);border-color:rgba(234,179,8,.25)">
+      <h4 style="color:var(--yellow)">⚠️ Fictional AI Identity</h4>
+      <p>This creates a completely fictional AI identity. No real person's likeness will be used. Clearly marked as AI-generated.</p>
+    </div>
+
+    <div class="checkbox-group mb-4" style="margin-top:16px">
+      <input type="checkbox" id="fc-consent-check">
+      <label for="fc-consent-check">I confirm this is a fictional AI human and I will not claim it is a real person.</label>
+    </div>
+
+    <button class="btn btn-primary btn-lg" id="fc-generate-btn">✨ Generate Fictional AI Human</button>
+    <div id="fc-status" style="margin-top:12px"></div>
+  </div>
+</div>`;
+
+  document.getElementById('fc-generate-btn').addEventListener('click', async () => {
+    const appearance = document.getElementById('fc-appearance')?.value.trim();
+    const consent = document.getElementById('fc-consent-check')?.checked;
+    if (!appearance) { toast('Please describe the appearance of your AI human.', 'error'); return; }
+    if (!consent) { toast('Please confirm this is a fictional AI human.', 'error'); return; }
+
+    const btn = document.getElementById('fc-generate-btn');
+    const statusEl = document.getElementById('fc-status');
+    btn.disabled = true; btn.textContent = '✨ Generating your AI human…';
+    statusEl.innerHTML = `<div class="loader" style="margin:0 auto"></div>`;
+
+    try {
+      const res = await api('/api/digital-humans/create-fictional', {
+        method: 'POST',
+        body: JSON.stringify({
+          gender: document.getElementById('fc-gender')?.value,
+          ageRange: document.getElementById('fc-age')?.value,
+          appearance,
+          style: document.getElementById('fc-style')?.value,
+          voiceStyle: document.getElementById('fc-voice')?.value,
+          personality: document.getElementById('fc-personality')?.value,
+          useCase: document.getElementById('fc-usecase')?.value,
+        }),
+      });
+      const dh = res.digitalHuman;
+      statusEl.innerHTML = `
+<div class="card" style="border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.06);margin-top:16px">
+  <div style="font-size:2rem;margin-bottom:8px">🎉</div>
+  <div class="font-bold mb-2" style="font-size:1.1rem">${escHtml(dh.name)} created!</div>
+  <div class="text-muted text-sm mb-4">Type: Fictional AI &middot; Voice: ${escHtml(dh.defaultVoice||'')}</div>
+  <button class="btn btn-primary" data-page="generate">Generate Video with This Human →</button>
+</div>`;
+      btn.style.display = 'none';
+    } catch(e) {
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = '✨ Generate Fictional AI Human';
+      statusEl.innerHTML = '';
+    }
+  });
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────

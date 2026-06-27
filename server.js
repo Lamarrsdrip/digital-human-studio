@@ -799,6 +799,120 @@ async function handleAPI(req, res, pathname) {
     return json(res, 200, health);
   }
 
+  // ── Camera capture sessions ───────────────────────────────────────────────
+  if (pathname === '/api/capture/session/start' && method === 'POST') {
+    const user = requireUser(req, db);
+    const sessionId = randomUUID();
+    const sessionDir = join(STORAGE_DIR, 'captures', sessionId);
+    await fs.promises.mkdir(sessionDir, { recursive: true });
+    if (!db.captureSessions) db.captureSessions = [];
+    db.captureSessions.push({ id: sessionId, userId: user.id, createdAt: new Date().toISOString(), status: 'pending' });
+    saveDb(db);
+    return json(res, 200, { sessionId });
+  }
+
+  if (pathname === '/api/capture/session/upload' && method === 'POST') {
+    const user = requireUser(req, db);
+    const sessionId = new URL(req.url, 'http://localhost').searchParams.get('sessionId');
+    if (!sessionId) return json(res, 400, { error: 'sessionId required' });
+    const sessions = db.captureSessions || [];
+    const session = sessions.find(s => s.id === sessionId && s.userId === user.id);
+    if (!session) return json(res, 404, { error: 'Session not found' });
+    const sessionDir = join(STORAGE_DIR, 'captures', sessionId);
+    await fs.promises.mkdir(sessionDir, { recursive: true });
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const buf = Buffer.concat(chunks);
+    const captureFile = join(sessionDir, 'capture.webm');
+    await fs.promises.writeFile(captureFile, buf);
+    session.captureFile = captureFile;
+    session.captureSize = buf.length;
+    session.status = 'captured';
+    saveDb(db);
+    return json(res, 200, { ok: true, sessionId, size: buf.length });
+  }
+
+  if (pathname === '/api/digital-humans/create-from-capture' && method === 'POST') {
+    const user = requireUser(req, db);
+    const body = await readJson(req);
+    const { name, sessionId, consentConfirmed } = body;
+    if (!name) return json(res, 400, { error: 'Name required' });
+    if (!consentConfirmed) return json(res, 400, { error: 'Consent required' });
+    const sessions = db.captureSessions || [];
+    const session = sessions.find(s => s.id === sessionId && s.userId === user.id);
+    const captureFile = session?.captureFile || null;
+    const dhId = randomUUID();
+    const dh = {
+      id: dhId, userId: user.id, name, type: 'self',
+      status: captureFile && existsSync(captureFile) ? 'ready' : 'draft',
+      consentType: 'self', consentConfirmed: true,
+      consentNote: 'Captured via camera wizard with biometric consent recording.',
+      facePath: captureFile && existsSync(captureFile) ? captureFile : null,
+      faceVideoPath: sessionId ? `/storage/captures/${sessionId}/capture.webm` : null,
+      captureSessionId: sessionId,
+      defaultVoice: 'en_US-amy-medium',
+      personality: {}, preferredOutfits: [], preferredScenes: [],
+      consentVerified: true, consentAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    db.digitalHumans.push(dh);
+    db.consentRecords = db.consentRecords || [];
+    db.consentRecords.push({
+      id: randomUUID(), userId: user.id, digitalHumanId: dh.id,
+      type: 'self', ipAddress: req.socket?.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      note: dh.consentNote, createdAt: new Date().toISOString(),
+    });
+    if (session) session.status = 'used';
+    saveDb(db);
+    return json(res, 201, { digitalHuman: dh });
+  }
+
+  if (pathname === '/api/digital-humans/create-fictional' && method === 'POST') {
+    const user = requireUser(req, db);
+    const body = await readJson(req);
+    const { gender, ageRange, appearance, style, voiceStyle, personality, useCase } = body;
+    if (!appearance) return json(res, 400, { error: 'Appearance description required' });
+    const nameMap = {
+      male: ['Alex', 'Jordan', 'Marcus', 'Ryan', 'James'],
+      female: ['Aria', 'Maya', 'Sofia', 'Elena', 'Zara'],
+      'non-binary': ['Riley', 'Sage', 'Avery', 'Quinn'],
+      custom: ['Nova', 'Echo', 'Pixel', 'Lyra'],
+    };
+    const names = nameMap[gender] || nameMap.custom;
+    const baseName = names[Math.floor(Math.random() * names.length)];
+    const dhName = body.name || `${baseName} AI`;
+    const voiceMap = {
+      'deep-male': 'en_US-lessac-medium', 'warm-female': 'en_US-amy-medium',
+      'young-energetic': 'en_US-ljspeech-medium', 'british': 'en_GB-alba-medium',
+      'american': 'en_US-amy-medium',
+    };
+    const dhId = randomUUID();
+    const dh = {
+      id: dhId, userId: user.id, name: dhName, type: 'fictional',
+      status: 'ready',
+      consentType: 'synthetic', consentConfirmed: true,
+      consentNote: 'Fictional AI-generated identity. No real person cloned.',
+      consentVerified: true, consentAt: new Date().toISOString(),
+      isFictional: true,
+      description: { gender, ageRange, appearance, style, voiceStyle, personality, useCase },
+      facePath: null, faceVideoPath: null,
+      defaultVoice: voiceMap[voiceStyle] || 'en_US-amy-medium',
+      personality: {}, preferredOutfits: [], preferredScenes: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    db.digitalHumans.push(dh);
+    db.consentRecords = db.consentRecords || [];
+    db.consentRecords.push({
+      id: randomUUID(), userId: user.id, digitalHumanId: dh.id,
+      type: 'synthetic', ipAddress: req.socket?.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      note: dh.consentNote, createdAt: new Date().toISOString(),
+    });
+    saveDb(db);
+    return json(res, 201, { digitalHuman: dh });
+  }
+
   // ── Digital Humans ────────────────────────────────────────────────────────
   if (pathname === '/api/digital-humans' && method === 'GET') {
     const user = requireUser(req, db);
@@ -1177,6 +1291,14 @@ const server = http.createServer(async (req, res) => {
     return streamMedia(req, res, join(STORAGE_DIR, folder, file));
   }
 
+  // Storage captures (webm capture files)
+  if (pathname.startsWith('/storage/captures/')) {
+    const sub = pathname.slice('/storage/captures/'.length);
+    // Only allow .webm files, no path traversal
+    if (sub.includes('..') || !sub.endsWith('.webm')) { res.writeHead(403); return res.end('Forbidden'); }
+    return streamMedia(req, res, join(STORAGE_DIR, 'captures', sub));
+  }
+
   // API
   if (pathname.startsWith('/api/')) {
     try {
@@ -1207,7 +1329,7 @@ async function startup() {
   }
 
   // Ensure storage dirs
-  for (const d of ['faces', 'voices', 'videos', 'originals', 'thumbnails', 'temp']) {
+  for (const d of ['faces', 'voices', 'videos', 'originals', 'thumbnails', 'temp', 'captures']) {
     mkdirSync(join(STORAGE_DIR, d), { recursive: true });
   }
 
