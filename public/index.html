@@ -3,13 +3,360 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Digital Human Studio</title>
+  <title>Digital Human Studio — AI Talking-Head Video Generator</title>
+  <meta name="description" content="Create AI talking-head videos with real lip sync, voice cloning, and captions. No camera. No studio. Just type and generate.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* ── Homepage only ── */
+    .hp-wrap { min-height: 100vh; background: var(--bg); }
+
+    /* Hero */
+    .hero { position: relative; overflow: hidden; padding: 80px 24px 100px; text-align: center; background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124,92,252,.28) 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,182,212,.12) 0%, transparent 70%); }
+    .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(124,92,252,.15); border: 1px solid rgba(124,92,252,.35); border-radius: 20px; padding: 6px 16px; font-size: .78rem; font-weight: 700; color: var(--accent2); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 28px; }
+    .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .hero h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 900; line-height: 1.08; letter-spacing: -.03em; margin: 0 auto 20px; max-width: 900px; }
+    .hero h1 .grad { background: linear-gradient(135deg, #a78bfa 0%, #67e8f9 60%, #a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .hero-sub { font-size: 1.15rem; color: var(--text2); max-width: 580px; margin: 0 auto 40px; line-height: 1.7; }
+    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn-hero { padding: 14px 32px; border-radius: 10px; font-size: 1rem; font-weight: 700; cursor: pointer; border: none; transition: all .2s; }
+    .btn-hero-primary { background: var(--accent); color: #fff; box-shadow: 0 0 32px rgba(124,92,252,.5); }
+    .btn-hero-primary:hover { background: #6d4fe0; transform: translateY(-2px); box-shadow: 0 8px 40px rgba(124,92,252,.6); }
+    .btn-hero-ghost { background: transparent; color: var(--text1); border: 1px solid var(--border2); }
+    .btn-hero-ghost:hover { background: var(--bg3); }
+
+    /* Demo video card */
+    .hero-demo { max-width: 340px; margin: 60px auto 0; background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.6), 0 0 0 1px rgba(124,92,252,.2); position: relative; }
+    .hero-demo-bar { padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+    .hero-demo-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .hero-demo-inner { aspect-ratio: 9/16; background: linear-gradient(180deg, #1a0a3a 0%, #0a0a14 100%); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; position: relative; }
+    .avatar-ring { width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(124,92,252,.5); background: linear-gradient(135deg, #232330, #1a1a24); display: flex; align-items: center; justify-content: center; font-size: 4rem; animation: pulse 3s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(124,92,252,.4)} 50%{box-shadow:0 0 0 20px rgba(124,92,252,0)} }
+    .caption-bar { background: rgba(0,0,0,.85); border-radius: 8px; padding: 10px 16px; font-size: 1rem; font-weight: 800; color: #fff; text-align: center; }
+    .caption-bar span { color: #06b6d4; }
+    .waveform { display: flex; gap: 4px; align-items: center; }
+    .waveform div { width: 4px; background: var(--accent2); border-radius: 2px; animation: wave 1.2s ease-in-out infinite; }
+    .waveform div:nth-child(1){height:12px;animation-delay:0s}
+    .waveform div:nth-child(2){height:22px;animation-delay:.15s}
+    .waveform div:nth-child(3){height:32px;animation-delay:.3s}
+    .waveform div:nth-child(4){height:20px;animation-delay:.45s}
+    .waveform div:nth-child(5){height:14px;animation-delay:.6s}
+    .waveform div:nth-child(6){height:28px;animation-delay:.75s}
+    .waveform div:nth-child(7){height:18px;animation-delay:.9s}
+    @keyframes wave { 0%,100%{transform:scaleY(1);opacity:.7} 50%{transform:scaleY(1.8);opacity:1} }
+
+    /* Features */
+    .features { padding: 80px 24px; max-width: 1140px; margin: 0 auto; }
+    .features-head { text-align: center; margin-bottom: 56px; }
+    .features-head h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 12px; }
+    .features-head p { color: var(--text2); font-size: 1rem; max-width: 520px; margin: 0 auto; }
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+    .feat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 28px; transition: all .2s; }
+    .feat-card:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: 0 20px 60px rgba(124,92,252,.15); }
+    .feat-icon { font-size: 2.4rem; margin-bottom: 16px; }
+    .feat-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+    .feat-card p { color: var(--text2); font-size: .875rem; line-height: 1.7; }
+
+    /* How it works */
+    .how { padding: 80px 24px; background: var(--bg2); }
+    .how-inner { max-width: 800px; margin: 0 auto; }
+    .how h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 48px; }
+    .steps-list { display: flex; flex-direction: column; gap: 0; position: relative; }
+    .steps-list::before { content: ''; position: absolute; left: 28px; top: 0; bottom: 0; width: 2px; background: linear-gradient(180deg, var(--accent), var(--cyan)); opacity: .3; }
+    .step-item { display: flex; gap: 24px; padding: 24px 0; position: relative; }
+    .step-num { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--cyan)); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 900; flex-shrink: 0; box-shadow: 0 0 20px rgba(124,92,252,.4); }
+    .step-body { padding-top: 12px; }
+    .step-body h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+    .step-body p { color: var(--text2); font-size: .875rem; line-height: 1.6; }
+
+    /* Use cases */
+    .usecases { padding: 80px 24px; max-width: 1140px; margin: 0 auto; }
+    .usecases h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 48px; }
+    .uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+    .uc-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 14px; padding: 22px; text-align: center; transition: all .2s; }
+    .uc-card:hover { border-color: var(--border2); background: var(--bg4); }
+    .uc-card .uc-icon { font-size: 2.2rem; margin-bottom: 12px; }
+    .uc-card h4 { font-size: .9rem; font-weight: 700; margin-bottom: 6px; }
+    .uc-card p { color: var(--text3); font-size: .78rem; line-height: 1.5; }
+
+    /* Pricing */
+    .pricing { padding: 80px 24px; background: var(--bg2); }
+    .pricing-inner { max-width: 1000px; margin: 0 auto; }
+    .pricing h2 { text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 12px; }
+    .pricing-sub { text-align: center; color: var(--text2); margin-bottom: 48px; }
+    .plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+    .plan-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 16px; padding: 28px; position: relative; }
+    .plan-card.featured { border-color: var(--accent); background: linear-gradient(135deg, rgba(124,92,252,.12), rgba(6,182,212,.06)); box-shadow: 0 0 40px rgba(124,92,252,.2); }
+    .plan-badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--accent), var(--cyan)); color: #fff; border-radius: 10px; padding: 4px 14px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+    .plan-name { font-size: .8rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+    .plan-price { font-size: 2.2rem; font-weight: 900; margin-bottom: 4px; }
+    .plan-price span { font-size: 1rem; font-weight: 400; color: var(--text3); }
+    .plan-credits { color: var(--accent2); font-weight: 600; font-size: .85rem; margin-bottom: 20px; }
+    .plan-features { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-direction: column; gap: 8px; }
+    .plan-features li { font-size: .82rem; color: var(--text2); display: flex; align-items: center; gap: 8px; }
+    .plan-features li::before { content: '✓'; color: var(--green); font-weight: 700; }
+
+    /* CTA */
+    .cta { padding: 100px 24px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 100%, rgba(124,92,252,.2) 0%, transparent 70%); }
+    .cta h2 { font-size: 2.4rem; font-weight: 900; margin-bottom: 16px; }
+    .cta p { color: var(--text2); font-size: 1.05rem; margin-bottom: 36px; }
+
+    /* Nav */
+    .hp-nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--border); background: rgba(9,9,15,.8); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }
+    .hp-nav-logo { font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .hp-nav-actions { display: flex; gap: 10px; }
+
+    /* Footer */
+    .hp-footer { padding: 32px 24px; border-top: 1px solid var(--border); text-align: center; color: var(--text3); font-size: .8rem; }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
-  <script src="/app.js" type="module"></script>
+<div id="toasts"></div>
+<div id="app">
+
+  <!-- ── Homepage (shown when logged out) ── -->
+  <div id="homepage" class="hp-wrap">
+
+    <!-- Nav -->
+    <nav class="hp-nav">
+      <div class="hp-nav-logo">Digital Human Studio</div>
+      <div class="hp-nav-actions">
+        <button class="btn btn-ghost btn-sm" id="hp-login-btn">Sign In</button>
+        <button class="btn btn-primary btn-sm" id="hp-signup-btn">Get Started Free</button>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-badge"><span class="dot"></span>AI-Powered · Local-First · 9:16 Ready</div>
+      <h1>Create AI <span class="grad">Digital Human</span> Videos in Minutes</h1>
+      <p class="hero-sub">Upload your face once. Type any script. Get a professional talking-head video with real lip sync, AI voice, and styled captions — ready for TikTok, Reels, and Shorts.</p>
+      <div class="hero-actions">
+        <button class="btn-hero btn-hero-primary" id="hero-start-btn">Start Free — 30 Credits</button>
+        <button class="btn-hero btn-hero-ghost" id="hero-login-btn">Sign In →</button>
+      </div>
+
+      <!-- Animated demo preview -->
+      <div class="hero-demo">
+        <div class="hero-demo-bar">
+          <div class="dot" style="background:#ef4444"></div>
+          <div class="dot" style="background:#eab308"></div>
+          <div class="dot" style="background:#22c55e"></div>
+          <span style="flex:1;text-align:center;font-size:.72rem;color:var(--text3)">Digital Human Studio</span>
+        </div>
+        <div class="hero-demo-inner">
+          <div class="avatar-ring">🧑</div>
+          <div class="waveform">
+            <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+          </div>
+          <div class="caption-bar">
+            THIS is how you <span>scale content</span>
+          </div>
+          <div style="position:absolute;bottom:16px;right:16px;background:rgba(124,92,252,.8);border-radius:6px;padding:4px 10px;font-size:.68rem;font-weight:700;color:#fff">● LIVE PREVIEW</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="features">
+      <div class="features-head">
+        <h2>Everything you need to go viral</h2>
+        <p>Professional talking-head video production, powered by AI and running on your own machine.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feat-card">
+          <div class="feat-icon">🧑</div>
+          <h3>AI Digital Human Creation</h3>
+          <p>Upload a single face photo or short video. Your AI avatar is ready in seconds — consistent identity across every video you create.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">🎤</div>
+          <h3>Voice Generation (TTS)</h3>
+          <p>Type your script and get natural, expressive audio instantly. Supports multiple voices, speeds, and emotional tones — no microphone needed.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">👄</div>
+          <h3>Real Lip Sync</h3>
+          <p>Your face actually mouths the words. Powered by Wav2Lip technology — the same tech used in professional AI video tools, running locally.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">📝</div>
+          <h3>Word-Level Captions</h3>
+          <p>Auto-generated, styled captions in the viral Hormozi / MrBeast style. Words highlight one by one as they're spoken.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">📱</div>
+          <h3>9:16 Portrait Export</h3>
+          <p>Every video is rendered in 1080×1920 — perfectly sized for TikTok, Instagram Reels, and YouTube Shorts, no cropping needed.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">🔗</div>
+          <h3>ClipForge AI Integration</h3>
+          <p>Fully integrated into ClipForge AI. Generate presenter intros, AI ads, and talking-head clips directly from your video repurposing workflow.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">🔒</div>
+          <h3>Built-in Consent System</h3>
+          <p>Every digital human requires explicit consent verification. Usage is logged, admin takedown controls are built in from day one.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">⚡</div>
+          <h3>Local-First, Cloud-Ready</h3>
+          <p>Runs 100% on your Mac — no monthly API bills, no data leaving your machine. Swap to cloud GPU workers any time with one env variable.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">🛠️</div>
+          <h3>Full Admin Control</h3>
+          <p>Manage users, credits, digital humans, and all video jobs from the built-in admin panel. Takedown controls for content moderation.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="how">
+      <div class="how-inner">
+        <h2>How it works</h2>
+        <div class="steps-list">
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h3>Create your Digital Human</h3>
+              <p>Upload a face photo or short video clip. Set your identity type, confirm consent, and your AI avatar is ready.</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h3>Write or generate your script</h3>
+              <p>Type exactly what you want your digital human to say — or give a topic and let the AI write a viral script for you.</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h3>AI generates voice + lip sync</h3>
+              <p>The TTS worker generates natural speech. Wav2Lip animates your face to match every word with precise lip movements.</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h3>Captions + final render</h3>
+              <p>Word-level captions are generated and burned in. FFmpeg renders the final 9:16 portrait video at 1080×1920, 30fps.</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <h3>Download and publish</h3>
+              <p>Your video is ready in minutes. Download it, post it to TikTok, Reels, or Shorts, or send it straight to ClipForge AI.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Use cases -->
+    <section class="usecases">
+      <h2>Built for every creator</h2>
+      <div class="uc-grid">
+        <div class="uc-card"><div class="uc-icon">📢</div><h4>Ad Videos</h4><p>Persuasive product ads with a human face — no actor needed</p></div>
+        <div class="uc-card"><div class="uc-icon">🎤</div><h4>Presenters</h4><p>AI presenter for your brand, channel, or business</p></div>
+        <div class="uc-card"><div class="uc-icon">⭐</div><h4>AI Influencer</h4><p>Build a consistent AI persona for social media growth</p></div>
+        <div class="uc-card"><div class="uc-icon">📚</div><h4>Course Videos</h4><p>Professional training and educational content at scale</p></div>
+        <div class="uc-card"><div class="uc-icon">🎙️</div><h4>Podcast Host</h4><p>Talk-show style videos without recording equipment</p></div>
+        <div class="uc-card"><div class="uc-icon">💼</div><h4>Sales Videos</h4><p>Personalized sales pitches in any language</p></div>
+        <div class="uc-card"><div class="uc-icon">▶️</div><h4>Intros & Outros</h4><p>Custom channel intros with your AI avatar</p></div>
+        <div class="uc-card"><div class="uc-icon">🌍</div><h4>Multi-Language</h4><p>Generate the same video in 10+ languages instantly</p></div>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <section class="pricing">
+      <div class="pricing-inner">
+        <h2>Simple, credit-based pricing</h2>
+        <p class="pricing-sub">Pay per video generation. No hidden fees. Cancel any time.</p>
+        <div class="plans">
+          <div class="plan-card">
+            <div class="plan-name">Free</div>
+            <div class="plan-price">$0<span>/mo</span></div>
+            <div class="plan-credits">30 credits / month</div>
+            <ul class="plan-features">
+              <li>6 Talking Head videos</li>
+              <li>9:16 portrait export</li>
+              <li>AI voice generation</li>
+              <li>Word-level captions</li>
+              <li>1 Digital Human</li>
+            </ul>
+            <button class="btn btn-ghost btn-full" id="plan-free-btn">Get Started Free</button>
+          </div>
+          <div class="plan-card featured">
+            <div class="plan-badge">Most Popular</div>
+            <div class="plan-name">Starter</div>
+            <div class="plan-price">$19<span>/mo</span></div>
+            <div class="plan-credits">200 credits / month</div>
+            <ul class="plan-features">
+              <li>40 Talking Head videos</li>
+              <li>20 Ad videos</li>
+              <li>All export formats</li>
+              <li>Priority processing</li>
+              <li>3 Digital Humans</li>
+              <li>API access</li>
+            </ul>
+            <button class="btn btn-primary btn-full" id="plan-starter-btn">Start Starter Plan</button>
+          </div>
+          <div class="plan-card">
+            <div class="plan-name">Pro</div>
+            <div class="plan-price">$49<span>/mo</span></div>
+            <div class="plan-credits">600 credits / month</div>
+            <ul class="plan-features">
+              <li>120 Talking Head videos</li>
+              <li>All video modes</li>
+              <li>All export formats</li>
+              <li>ClipForge integration</li>
+              <li>Unlimited Digital Humans</li>
+              <li>Full API access</li>
+            </ul>
+            <button class="btn btn-ghost btn-full" id="plan-pro-btn">Start Pro Plan</button>
+          </div>
+          <div class="plan-card">
+            <div class="plan-name">Enterprise</div>
+            <div class="plan-price">$149<span>/mo</span></div>
+            <div class="plan-credits">2,000 credits / month</div>
+            <ul class="plan-features">
+              <li>400 Talking Head videos</li>
+              <li>All video modes</li>
+              <li>Cloud GPU workers</li>
+              <li>White-label option</li>
+              <li>Unlimited everything</li>
+              <li>Priority support</li>
+            </ul>
+            <button class="btn btn-ghost btn-full" id="plan-ent-btn">Contact Sales</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+      <h2>Start creating in 60 seconds</h2>
+      <p>No credit card. No camera. No studio. Just sign up and generate your first video.</p>
+      <button class="btn-hero btn-hero-primary" id="cta-start-btn">Create Your Free Account →</button>
+    </section>
+
+    <!-- Footer -->
+    <footer class="hp-footer">
+      <p>Digital Human Studio · AI Video Generation Platform · Built for creators</p>
+      <p style="margin-top:6px">Runs locally on your Mac · FFmpeg + Wav2Lip + Python workers</p>
+    </footer>
+  </div>
+
+  <!-- ── App Shell (shown when logged in) ── -->
+  <div id="app-shell" style="display:none"></div>
+
+</div>
+
+<script src="/app.js" type="module"></script>
 </body>
 </html>

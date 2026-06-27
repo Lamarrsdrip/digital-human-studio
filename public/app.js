@@ -52,17 +52,70 @@ function navigate(page, params = {}) {
 }
 
 function render() {
+  const hp = document.getElementById('homepage');
+  const shell = document.getElementById('app-shell');
   const app = document.getElementById('app');
-  if (!state.user) { app.innerHTML = renderAuth(); bindAuth(); return; }
-  app.innerHTML = renderShell();
-  bindShell();
-  renderPage();
+
+  if (!state.user) {
+    // Show homepage, hide shell
+    if (hp) { hp.style.display = ''; }
+    if (shell) { shell.style.display = 'none'; }
+    // If no homepage element, fall back to inline auth
+    if (!hp) { app.innerHTML = renderAuth(); bindAuth(); }
+    else bindHomepage();
+    return;
+  }
+
+  // Logged in — hide homepage, show shell
+  if (hp) hp.style.display = 'none';
+  if (shell) {
+    shell.style.display = '';
+    shell.innerHTML = renderShellHtml();
+    bindShell();
+    renderPage();
+  } else {
+    app.innerHTML = renderShell();
+    bindShell();
+    renderPage();
+  }
 }
+
+function bindHomepage() {
+  const tryBind = (id, fn) => { const el = document.getElementById(id); if (el && !el._bound) { el._bound = true; el.addEventListener('click', fn); } };
+  const goAuth = () => {
+    const hp = document.getElementById('homepage');
+    if (hp) hp.style.display = 'none';
+    const shell = document.getElementById('app-shell');
+    if (shell) { shell.style.display = ''; shell.innerHTML = renderAuth(); bindAuth(); }
+  };
+  tryBind('hp-login-btn', goAuth);
+  tryBind('hero-login-btn', goAuth);
+  tryBind('hp-signup-btn', goAuth);
+  tryBind('hero-start-btn', goAuth);
+  tryBind('cta-start-btn', goAuth);
+  tryBind('plan-free-btn', goAuth);
+  tryBind('plan-starter-btn', goAuth);
+  tryBind('plan-pro-btn', goAuth);
+  tryBind('plan-ent-btn', goAuth);
+}
+
+function renderShell() {
+  const shell = document.getElementById('app-shell');
+  if (shell) {
+    shell.style.display = '';
+    shell.innerHTML = renderShellHtml();
+    return;
+  }
+  // Fallback for old single-div mode
+  const app = document.getElementById('app');
+  app.innerHTML = renderShellHtml();
+}
+
+// renderShellHtml is defined further below (renamed from old renderShell)
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 function renderAuth() {
   return `
-<div id="toasts"></div>
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="auth-logo">
@@ -96,8 +149,8 @@ function renderSignupForm() {
 }
 
 function bindAuth() {
-  document.getElementById('toasts');
-  document.addEventListener('submit', async e => {
+  const container = document.getElementById('app-shell') || document.getElementById('app');
+  container.addEventListener('submit', async e => {
     if (e.target.id === 'login-form') {
       e.preventDefault();
       const btn = document.getElementById('login-btn');
@@ -106,7 +159,7 @@ function bindAuth() {
         const { user } = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: document.getElementById('login-email').value, password: document.getElementById('login-password').value }) });
         state.user = user;
         navigate('dashboard');
-      } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Sign In'; }
+      } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Sign In'; }
     }
     if (e.target.id === 'signup-form') {
       e.preventDefault();
@@ -116,10 +169,10 @@ function bindAuth() {
         const { user } = await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name: document.getElementById('signup-name').value, email: document.getElementById('signup-email').value, password: document.getElementById('signup-password').value }) });
         state.user = user;
         navigate('dashboard');
-      } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Create Account'; }
+      } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Create Account'; }
     }
   });
-  document.addEventListener('click', e => {
+  container.addEventListener('click', e => {
     if (e.target.id === 'show-signup') { e.preventDefault(); document.getElementById('auth-form').innerHTML = renderSignupForm(); }
     if (e.target.id === 'show-login') { e.preventDefault(); document.getElementById('auth-form').innerHTML = renderLoginForm(); }
   });
@@ -141,7 +194,7 @@ const NAV_ITEMS = [
   { id: 'admin', icon: '🛡️', label: 'Admin Panel', section: null, adminOnly: true },
 ];
 
-function renderShell() {
+function renderShellHtml() {
   const user = state.user;
   const navItems = NAV_ITEMS.filter(n => !n.adminOnly || user.role === 'admin');
   let lastSection = null;
@@ -197,11 +250,21 @@ function getPageTitle() {
 }
 
 function bindShell() {
-  document.addEventListener('click', e => {
-    const pageEl = e.target.closest('[data-page]');
-    if (pageEl) { navigate(pageEl.dataset.page); return; }
-    if (e.target.id === 'logout-btn') { state.user = null; navigate('login'); }
-  });
+  // Remove old listener to avoid duplicates
+  document.removeEventListener('click', _shellClickHandler);
+  document.addEventListener('click', _shellClickHandler);
+}
+function _shellClickHandler(e) {
+  const pageEl = e.target.closest('[data-page]');
+  if (pageEl) { navigate(pageEl.dataset.page); return; }
+  if (e.target.id === 'logout-btn') {
+    state.user = null;
+    const hp = document.getElementById('homepage');
+    const shell = document.getElementById('app-shell');
+    if (hp) hp.style.display = '';
+    if (shell) { shell.style.display = 'none'; shell.innerHTML = ''; }
+    bindHomepage();
+  }
 }
 
 function renderPage() {
@@ -984,7 +1047,11 @@ function escHtml(str) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-const toastsDiv = document.createElement('div');
-toastsDiv.id = 'toasts';
-document.body.appendChild(toastsDiv);
+// Ensure toasts container exists (may already be in HTML)
+if (!document.getElementById('toasts')) {
+  const toastsDiv = document.createElement('div');
+  toastsDiv.id = 'toasts';
+  document.body.appendChild(toastsDiv);
+}
+render();
 render();
