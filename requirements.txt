@@ -1,0 +1,30 @@
+# Digital Human Studio — Python worker dependencies
+# Install with: pip3.9 install -r requirements.txt
+# Note: torch install depends on your hardware — see comments below.
+
+# Core computer vision (face detection, alignment)
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Audio processing
+librosa>=0.10.0
+soundfile>=0.12.0
+scipy>=1.11.0
+
+# Lip sync model dependencies (Wav2Lip / SadTalker)
+# For CPU-only (Intel Mac, no GPU):
+#   pip3.9 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# For Apple Silicon (MPS):
+#   pip3.9 install torch torchvision torchaudio
+# After installing torch, install these:
+face-alignment>=1.4.0
+batch-face>=1.4.0
+
+# ElevenLabs client (optional — cloud TTS)
+# elevenlabs>=0.3.0
+
+# Utility
+requests>=2.31.0
+tqdm>=4.66.0
