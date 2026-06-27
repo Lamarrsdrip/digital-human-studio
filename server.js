@@ -138,7 +138,9 @@ function run(cmd, args, { timeoutMs = 300_000, label = cmd, jobId = '' } = {}) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     console.log(`[run:start] ${label}`, { cmd, args: args.join(' ').slice(0, 200) });
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // Inject user site-packages so Python workers can find pip-installed packages
+    const env = { ...process.env, PYTHONPATH: '/Users/libertyelectronics/Library/Python/3.9/lib/python/site-packages' };
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     let stdout = '', stderr = '';
     const MAX = 2 * 1024 * 1024;
     let settled = false;
