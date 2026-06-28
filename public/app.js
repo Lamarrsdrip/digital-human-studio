@@ -56,15 +56,28 @@ function toast(msg, type = 'info') {
 
 // ── Quality level helpers ────────────────────────────────────────────────────
 const QUALITY_META = {
-  1: { cls: 'quality-1', label: 'Static Fallback ⚠', short: 'Static Fallback' },
-  2: { cls: 'quality-2', label: 'Talking Head',       short: 'Talking Head' },
-  3: { cls: 'quality-3', label: 'AI Motion',          short: 'AI Motion Video' },
-  4: { cls: 'quality-4', label: 'Full Scene AI',      short: 'Full Scene Video' },
-  5: { cls: 'quality-5', label: 'Custom GPU',         short: 'Custom GPU Model' },
+  0: { cls: 'quality-0', label: 'Static Test',        short: 'Level 0: Static Only',          warn: true },
+  1: { cls: 'quality-1', label: 'Talking Head',        short: 'Level 1: Talking Head',         warn: false },
+  2: { cls: 'quality-2', label: 'AI Motion',           short: 'Level 2: AI Motion',            warn: false },
+  3: { cls: 'quality-3', label: 'Full Scene AI',       short: 'Level 3: Full Scene AI',        warn: false },
+  4: { cls: 'quality-4', label: 'Cinematic AI',        short: 'Level 4: Cinematic AI',         warn: false },
 };
 function qualityBadge(level, extra = '') {
-  const m = QUALITY_META[level] || QUALITY_META[1];
-  return `<span class="quality-level-badge ${m.cls}">Level ${level || 1}: ${m.label}${extra}</span>`;
+  const m = QUALITY_META[level] ?? QUALITY_META[0];
+  return `<span class="quality-level-badge ${m.cls}">Level ${level ?? 0}: ${m.label}${extra}</span>`;
+}
+function qualityExplainer(level, hint = '') {
+  const descs = {
+    0: 'Static image + audio. NOT AI video. Add a cloud provider for real generation.',
+    1: 'Lip-synced face animation (local Wav2Lip/SadTalker). Face identity preserved.',
+    2: 'Identity animates with real AI motion. Runway i2v / Kling i2v.',
+    3: 'New AI-generated cinematic scene. Runway / Veo / Kling / Pika / Luma / Hailuo.',
+    4: 'Identity-preserved cinematic quality. Full production pipeline.',
+  };
+  const warn = level === 0
+    ? `<div class="provider-warning mt-2">⚠ <b>Static mode</b> — configure Runway, Kling, Pika, Luma, Veo, or Hailuo in <button class="link-btn" data-page="settings">Settings → Video Provider</button> to generate real AI scenes.</div>`
+    : '';
+  return `<div class="quality-explainer">${descs[level] ?? descs[0]}${hint ? ` ${hint}` : ''}${warn}</div>`;
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────
@@ -403,66 +416,128 @@ function renderPage() {
 async function pageDashboard(el) {
   el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
   try {
-    const [dhRes, jobsRes] = await Promise.all([
+    const [dhRes, jobsRes, health] = await Promise.all([
       api('/api/digital-humans'),
       api('/api/jobs'),
+      api('/api/workers/health').catch(() => ({})),
     ]);
     state.digitalHumans = dhRes.digitalHumans || [];
     state.jobs = jobsRes.jobs || [];
     const completed = state.jobs.filter(j => j.status === 'complete').length;
     const inProgress = state.jobs.filter(j => j.status === 'processing' || j.status === 'queued').length;
+    const activeLevel = health.activeQualityLevel ?? 0;
+    const canScene = health.canGenerateScenes;
+
     el.innerHTML = `
+<!-- Hero: Generate Video is the primary action -->
+<div class="engine-hero">
+  <div class="engine-hero-text">
+    <div class="engine-badge">
+      <span class="engine-dot"></span>
+      Digital Human Engine
+    </div>
+    <h2 class="engine-title">Direct Your AI Twin Like an Actor</h2>
+    <p class="engine-desc">Create your digital identity once. Then generate unlimited videos in any scene — London, Ferrari, studio, TikTok, sales video, podcast — all from a prompt.</p>
+    <div class="engine-level-row">
+      ${qualityBadge(activeLevel)}
+      <span class="engine-provider">via ${escHtml(health.videoProvider || 'static')}</span>
+      ${!canScene ? `<span class="engine-warn">Scene video needs a provider →</span>` : ''}
+    </div>
+  </div>
+  <div class="engine-actions">
+    <button class="btn btn-primary btn-lg engine-cta" data-page="generate">🎬 Generate Video</button>
+    ${state.digitalHumans.length === 0 ? `<button class="btn btn-ghost engine-cta-sec" data-page="create-twin">📸 Create AI Twin First</button>` : ''}
+  </div>
+</div>
+
+${!canScene ? `
+<div class="provider-warning mb-4">
+  <b>⚠ Provider Required for Real AI Scenes</b><br>
+  ${escHtml(health.providerHint || 'Configure a video provider to generate cinematic scenes.')}
+  <button class="btn btn-ghost btn-sm" data-page="settings" style="margin-left:10px">Configure →</button>
+</div>` : ''}
+
+<!-- Stats -->
 <div class="grid-4 mb-6">
-  <div class="stat-card accent"><div class="stat-label">Digital Humans</div><div class="stat-value">${state.digitalHumans.length}</div><div class="stat-sub">Ready to generate</div></div>
-  <div class="stat-card"><div class="stat-label">Videos Generated</div><div class="stat-value">${completed}</div><div class="stat-sub">Completed</div></div>
-  <div class="stat-card"><div class="stat-label">In Queue</div><div class="stat-value">${inProgress}</div><div class="stat-sub">Processing now</div></div>
-  <div class="stat-card"><div class="stat-label">Credits Left</div><div class="stat-value">${state.user.credits}</div><div class="stat-sub">${state.user.plan} plan</div></div>
+  <div class="stat-card accent">
+    <div class="stat-label">Digital Humans</div>
+    <div class="stat-value">${state.digitalHumans.length}</div>
+    <div class="stat-sub">Identities ready</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Videos Made</div>
+    <div class="stat-value">${completed}</div>
+    <div class="stat-sub">Completed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">In Queue</div>
+    <div class="stat-value">${inProgress}</div>
+    <div class="stat-sub">Processing</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Credits</div>
+    <div class="stat-value">${state.user.credits}</div>
+    <div class="stat-sub">${state.user.plan} plan</div>
+  </div>
 </div>
 
-<div class="section-title mb-3">Quick Create</div>
-<div class="quick-create-row">
-  <button class="quick-create-btn" data-page="create-twin">
-    <div class="qc-icon">📸</div>
-    <div class="qc-label">Capture My Face</div>
-    <div class="qc-desc">Camera wizard</div>
-  </button>
-  <button class="quick-create-btn" data-page="create-human">
-    <div class="qc-icon">📁</div>
-    <div class="qc-label">Upload Files</div>
-    <div class="qc-desc">Photos &amp; voice</div>
-  </button>
-  <button class="quick-create-btn" data-page="create-fictional">
-    <div class="qc-icon">✨</div>
-    <div class="qc-label">Generate Human</div>
-    <div class="qc-desc">From description</div>
-  </button>
+<!-- Scene prompt examples -->
+<div class="section-title mb-3">What can you generate?</div>
+<div class="example-prompts mb-6">
+  ${[
+    ['🚗', 'My twin driving a Ferrari in London advertising Digital Human OS'],
+    ['🏢', 'Luxury business presenter in an Apple-style studio'],
+    ['🎙️', 'Male fitness coach making a TikTok gym ad'],
+    ['🏡', 'Female presenter selling a real estate platform'],
+    ['💰', 'AI teacher explaining crypto investing'],
+    ['🌟', 'Luxury influencer promoting perfume in Paris'],
+  ].map(([icon, txt]) => `
+  <div class="example-prompt" onclick="_fillPromptAndNavigate(${JSON.stringify(txt)})">
+    <span class="ep-icon">${icon}</span>
+    <span class="ep-text">${escHtml(txt)}</span>
+  </div>`).join('')}
 </div>
 
+<!-- Human Library -->
 ${state.digitalHumans.length === 0 ? `
 <div class="card" style="text-align:center;padding:48px">
-  <div style="font-size:3rem;margin-bottom:16px">🧑‍💻</div>
+  <div style="font-size:3rem;margin-bottom:16px">🧑</div>
   <h3 style="margin-bottom:8px">Create your first Digital Human</h3>
-  <p class="text-muted" style="margin-bottom:24px">Use your camera to capture your face and voice in 2 minutes.</p>
-  <button class="btn btn-primary btn-lg" data-page="create-twin">📸 Create My AI Twin</button>
-  <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-page="create-human">or upload files instead</button></div>
+  <p class="text-muted mb-4">Capture your identity once — then direct yourself in any scene.</p>
+  <div class="flex gap-3" style="justify-content:center;flex-wrap:wrap">
+    <button class="btn btn-primary btn-lg" data-page="create-twin">📸 My AI Twin (camera)</button>
+    <button class="btn btn-ghost" data-page="create-fictional">✨ Synthetic Human (description)</button>
+  </div>
 </div>` : `
 <div class="flex items-center justify-between mb-4">
-  <div><div class="section-title">Your Digital Humans</div></div>
-  <button class="btn btn-ghost btn-sm" data-page="my-humans">View all</button>
+  <div class="section-title">Human Library</div>
+  <div class="flex gap-2">
+    <button class="btn btn-ghost btn-sm" data-page="create-twin">+ AI Twin</button>
+    <button class="btn btn-ghost btn-sm" data-page="create-fictional">+ Synthetic</button>
+    <button class="btn btn-ghost btn-sm" data-page="my-humans">View all</button>
+  </div>
 </div>
 <div class="dh-grid">
   ${state.digitalHumans.slice(0, 4).map(renderDHCard).join('')}
-  <div class="dh-add-card" data-page="create-human"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span>New Digital Human</span></div>
+  <div class="dh-add-card" data-page="create-twin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <span>New Digital Human</span>
+  </div>
 </div>`}
 
 ${state.jobs.length > 0 ? `
 <div class="flex items-center justify-between mb-4 mt-6">
-  <div class="section-title">Recent Jobs</div>
+  <div class="section-title">Recent Videos</div>
   <button class="btn btn-ghost btn-sm" data-page="jobs">View all</button>
 </div>
 <div class="job-list">${state.jobs.slice(0, 3).map(renderJobCard).join('')}</div>` : ''}
 `;
   } catch (e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
+}
+
+function _fillPromptAndNavigate(prompt) {
+  state.pendingPrompt = prompt;
+  navigate('generate');
 }
 
 // ── My Digital Humans ──────────────────────────────────────────────────────
@@ -501,25 +576,31 @@ ${digitalHumans.length === 0 ? `<div class="empty-state"><div class="icon">🧑<
 
 function renderDHCard(dh) {
   const statusMap = {
-    ready:      { cls: 'badge-green',  label: '✓ Ready' },
-    draft:      { cls: 'badge-yellow', label: '⚠ Draft' },
-    needs_face: { cls: 'badge-red',    label: '📷 Needs face upload' },
+    ready:                { cls: 'badge-green',  label: '✓ Ready' },
+    draft:                { cls: 'badge-yellow', label: '⚠ Draft' },
+    needs_face:           { cls: 'badge-red',    label: '📷 Needs face' },
     needs_image_provider: { cls: 'badge-orange', label: '🖼 Needs image provider' },
-    taken_down: { cls: 'badge-red',    label: '✕ Taken down' },
+    taken_down:           { cls: 'badge-red',    label: '✕ Taken down' },
   };
   const st = statusMap[dh.status] || { cls: 'badge-yellow', label: dh.status };
-  const typeIcons = { self: '🧑', male: '👨', female: '👩', brand: '🏢', presenter: '🎤', teacher: '📚', salesperson: '💼', influencer: '⭐', support: '🎧', fictional: '✨' };
-  const noFaceWarn = (dh.status === 'needs_face' || dh.status === 'needs_image_provider')
-    ? `<div style="font-size:.72rem;color:var(--yellow);margin-top:4px">${dh.status === 'needs_image_provider' ? 'Configure an image provider or upload a face photo to enable video' : 'Upload a face photo to enable video generation'}</div>` : '';
+  const typeIcons = { ai_twin: '🧑', self: '🧑', fictional: '✨', presenter: '🎤', influencer: '⭐', teacher: '📚', salesperson: '💼', brand: '🏢', male: '👨', female: '👩' };
+  const icon = typeIcons[dh.type] || (dh.isFictional ? '✨' : '🧑');
+  const identityQ = dh.identityPack?.qualityScore;
+  const qualityPill = identityQ !== undefined
+    ? `<span class="badge badge-quality" title="Identity quality score">${identityQ}% identity</span>` : '';
+  const humanType = dh.isFictional ? 'Synthetic Human' : 'AI Twin';
   return `<div class="dh-card" data-id="${dh.id}">
-  <div class="dh-avatar"><span class="dh-avatar-placeholder">${typeIcons[dh.type] || '🧑'}</span></div>
+  <div class="dh-avatar"><span class="dh-avatar-placeholder">${icon}</span></div>
   <div class="dh-card-body">
     <div class="dh-card-name">${escHtml(dh.name)}</div>
-    <div class="dh-card-type">${dh.type} · ${dh.defaultVoice?.split('/').pop() || 'Default voice'}</div>
-    ${noFaceWarn}
+    <div class="dh-card-type">${humanType} · ${escHtml(dh.type || 'presenter')}</div>
+    ${dh.status === 'needs_image_provider' ? `<div class="dh-warn-text">Configure image provider or upload face photo</div>` : ''}
+    ${dh.status === 'needs_face' ? `<div class="dh-warn-text">Upload a face photo to enable video generation</div>` : ''}
     <div class="dh-card-footer">
       <span class="badge ${st.cls}">${st.label}</span>
-      <button class="btn btn-danger btn-sm" data-id="${dh.id}" onclick="event.stopPropagation()">Delete</button>
+      ${qualityPill}
+      <button class="btn btn-primary btn-sm" data-page="generate" data-dh="${dh.id}" onclick="event.stopPropagation();state.selectedDH='${dh.id}';navigate('generate');">▶ Generate</button>
+      <button class="btn btn-danger btn-sm" data-id="${dh.id}" onclick="event.stopPropagation()">✕</button>
     </div>
   </div>
 </div>`;
@@ -744,118 +825,144 @@ async function pageGenerate(el) {
       api('/api/workers/health').catch(() => ({})),
     ]);
     state.digitalHumans = digitalHumans;
-    const activeLevel = health.activeQualityLevel || 1;
+    const activeLevel = health.activeQualityLevel ?? 0;
+    const canGenerateScenes = health.canGenerateScenes || false;
 
     if (digitalHumans.length === 0) {
-      el.innerHTML = `<div class="card" style="text-align:center;padding:48px"><div style="font-size:2.5rem;margin-bottom:16px">🧑</div><h3>No Digital Humans Yet</h3><p class="text-muted mb-4">Create a digital human first before generating videos.</p><button class="btn btn-primary btn-lg" data-page="create-human">Create Digital Human</button></div>`;
+      el.innerHTML = `
+<div class="engine-hero" style="text-align:center;padding:48px 24px">
+  <div style="font-size:3rem;margin-bottom:16px">🧬</div>
+  <div class="engine-title">No Digital Humans Yet</div>
+  <div class="engine-desc" style="max-width:360px;margin:8px auto 24px">Create your AI twin from a camera capture, or generate a synthetic human from a description.</div>
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+    <button class="btn btn-primary" data-page="create-twin">📷 Create AI Twin</button>
+    <button class="btn btn-ghost" data-page="create-fictional">🤖 Synthetic Human</button>
+  </div>
+</div>`;
       return;
     }
 
-    const MODES = [
-      { id: 'talking_head', icon: '💬', name: 'Talking Head', cost: 5 },
-      { id: 'presenter',    icon: '🎤', name: 'Presenter',    cost: 8 },
-      { id: 'ad_video',     icon: '📢', name: 'Ad Video',     cost: 10 },
-      { id: 'influencer',   icon: '⭐', name: 'Influencer',   cost: 8 },
-      { id: 'intro',        icon: '▶️', name: 'Intro Clip',   cost: 3 },
-      { id: 'outro',        icon: '⏹️', name: 'Outro',        cost: 3 },
-      { id: 'podcast',      icon: '🎙️', name: 'Podcast',      cost: 6 },
-      { id: 'course',       icon: '📚', name: 'Course',       cost: 8 },
+    const EXAMPLE_PROMPTS = [
+      { icon: '🚗', text: 'My twin driving a Ferrari through London at night' },
+      { icon: '🍎', text: 'Apple-style product launch presenter in studio' },
+      { icon: '💪', text: 'TikTok gym motivation ad — 15 seconds, high energy' },
+      { icon: '🏡', text: 'Real estate agent presenting a luxury penthouse listing' },
+      { icon: '📊', text: 'Crypto analyst explaining market trends — professional backdrop' },
+      { icon: '✈️', text: 'Travel influencer at a rooftop pool in Dubai' },
     ];
 
-    let selectedMode = 'talking_head';
-    let advanced = false;
     let lastPlan = null;
+    let advanced = false;
     let selectedDH = state.selectedDH && digitalHumans.find(d => d.id === state.selectedDH)
       ? state.selectedDH
       : digitalHumans[0]?.id || '';
 
-    function currentCost() { return MODES.find(m => m.id === selectedMode)?.cost || 5; }
     function blockedStatus(dh) { return dh && (dh.status === 'needs_face' || dh.status === 'needs_image_provider'); }
 
     function levelBanner() {
-      if (activeLevel <= 1) {
-        return `<div class="provider-warning mb-4">⚠ ${qualityBadge(1)} You will get a <b>static image + audio</b>, not real AI motion. Configure a video provider in <button class="link-btn" data-page="settings">Settings</button> for real video.</div>`;
+      if (activeLevel === 0) {
+        return `<div class="engine-warn mb-4">⚠ No video provider configured. Videos will be <b>static image + audio only</b>. Configure Runway, Kling, Veo, or another provider in <button class="link-btn" data-page="settings">Settings</button> for real AI video.</div>`;
       }
-      return `<div class="plan-card mb-4" style="display:flex;align-items:center;gap:10px"><span>Active output:</span>${qualityBadge(activeLevel)}<span class="text-muted text-sm">${escHtml((health.qualityLevels?.[activeLevel]?.desc) || '')}</span></div>`;
+      if (!canGenerateScenes) {
+        return `<div class="provider-warning mb-4">⚠ ${qualityBadge(activeLevel)} Scene and action video requires Level 3+. Upgrade your provider in <button class="link-btn" data-page="settings">Settings</button>.</div>`;
+      }
+      return `<div class="plan-card mb-4" style="display:flex;align-items:center;gap:10px">${qualityBadge(activeLevel)}<span class="text-muted text-sm">${escHtml(health.providerHint || 'Real AI video generation active')}</span></div>`;
     }
 
-    function advancedFields() {
+    function advancedPanel() {
       if (!advanced) return '';
       return `
-      <div class="form-group"><label>Scene <span>(where it happens)</span></label>
-        <input type="text" id="gen-scene" placeholder="e.g. London city street at sunset"></div>
-      <div class="form-group"><label>Action <span>(what the human does)</span></label>
-        <input type="text" id="gen-action" placeholder="e.g. driving a Ferrari, walking and talking"></div>
-      <div class="form-group"><label>Product / Website <span>(optional)</span></label>
-        <input type="text" id="gen-product" placeholder="e.g. mybrand.com — luxury watches"></div>
-      <div class="form-group"><label>Camera Style</label>
-        <select id="gen-camera">
-          <option value="cinematic">Cinematic</option>
-          <option value="documentary">Documentary</option>
-          <option value="studio">Studio</option>
-          <option value="social">Social</option>
-          <option value="vlog">Vlog</option>
-        </select></div>
-      <button class="btn btn-ghost" id="plan-ai-btn" style="margin-bottom:12px">🧠 Plan with AI →</button>
-      <div id="plan-output"></div>`;
+<div class="advanced-panel">
+  <div class="form-row">
+    <div class="form-group"><label>Scene <span>(where it happens)</span></label>
+      <input type="text" id="gen-scene" placeholder="e.g. London city street at sunset"></div>
+    <div class="form-group"><label>Action <span>(what they do)</span></label>
+      <input type="text" id="gen-action" placeholder="e.g. driving a Ferrari, walking toward camera"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Product / Brand</label>
+      <input type="text" id="gen-product" placeholder="e.g. mybrand.com — luxury watches"></div>
+    <div class="form-group"><label>Camera Style</label>
+      <select id="gen-camera">
+        <option value="cinematic">Cinematic</option>
+        <option value="documentary">Documentary</option>
+        <option value="studio">Studio Close-up</option>
+        <option value="social">Social / Handheld</option>
+        <option value="drone">Drone / Aerial</option>
+      </select></div>
+  </div>
+  <button class="btn btn-ghost btn-sm" id="plan-ai-btn" style="margin-bottom:12px">🧠 Plan with AI →</button>
+  <div id="plan-output"></div>
+</div>`;
     }
 
     function draw() {
-      const cost = currentCost();
       el.innerHTML = `
 ${levelBanner()}
+
 <div class="gen-layout">
   <div class="gen-main">
 
     <div class="card mb-4">
-      <div class="gen-step-header">
+      <div class="gen-step-header mb-3">
         <span class="gen-step-num">1</span>
-        <span class="section-title" style="margin:0">Choose Mode</span>
-        <span class="gen-cost-inline" id="cost-display">${cost} cr</span>
+        <span class="section-title" style="margin:0">Describe the Video</span>
+        <button class="advanced-toggle${advanced?' on':''}" id="adv-toggle" title="Advanced: scene, action, camera">${advanced?'◉ Advanced':'○ Advanced'}</button>
       </div>
-      <div class="mode-grid mt-3">
-        ${MODES.map(m => `
-        <div class="mode-card${selectedMode===m.id?' selected':''}" data-mode="${m.id}">
-          <div class="mode-icon">${m.icon}</div>
-          <div class="mode-name">${m.name}</div>
-          <div class="mode-cost"><span>${m.cost} cr</span></div>
-        </div>`).join('')}
+      <div class="form-group">
+        <label>Prompt <span>(one sentence — what do you want?)</span></label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <textarea id="gen-prompt" rows="3" placeholder="e.g. My twin presenting a luxury product in a sleek Apple-style studio" style="flex:1"></textarea>
+        </div>
+      </div>
+
+      <div class="example-prompts mb-3">
+        ${EXAMPLE_PROMPTS.map(p => `
+        <button class="example-prompt" data-prompt="${escHtml(p.text)}">
+          <span class="ep-icon">${p.icon}</span>
+          <span class="ep-text">${escHtml(p.text)}</span>
+        </button>`).join('')}
+      </div>
+
+      ${advancedPanel()}
+
+      <div class="form-group mt-2">
+        <label>Script <span>(what they say — or leave blank to auto-generate)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+          <textarea id="gen-script" rows="4" placeholder="Type the spoken script, or click Auto-Write to generate from the prompt…" style="flex:1;min-width:200px"></textarea>
+        </div>
+        <div style="margin-top:6px">
+          <button class="btn btn-ghost btn-sm" id="auto-write-btn">✨ Auto-Write from Prompt</button>
+        </div>
       </div>
     </div>
 
     <div class="card mb-4">
-      <div class="gen-step-header">
+      <div class="gen-step-header mb-3">
         <span class="gen-step-num">2</span>
-        <span class="section-title" style="margin:0">Choose Avatar</span>
-        <button class="btn btn-ghost btn-sm" data-page="create-human">+ New</button>
+        <span class="section-title" style="margin:0">Select Identity</span>
+        <button class="btn btn-ghost btn-sm" data-page="create-twin">+ New Twin</button>
       </div>
-      <div class="dh-picker-row mt-3">
-        ${digitalHumans.map(dh => `
-        <div class="dh-picker-card${selectedDH===dh.id?' selected':''}${blockedStatus(dh)?' dh-needs-face':''}" data-dh="${dh.id}" title="${blockedStatus(dh)?'No face asset':''}">
-          <div class="dh-picker-avatar">${blockedStatus(dh)?'⚠️':'🧑'}</div>
+      <div class="dh-picker-row">
+        ${digitalHumans.map(dh => {
+          const blocked = blockedStatus(dh);
+          const isSel = selectedDH === dh.id;
+          const qualScore = dh.identityPack?.qualityScore;
+          const typeLabel = dh.isFictional ? 'Synthetic' : 'AI Twin';
+          return `
+        <div class="dh-picker-card${isSel?' selected':''}${blocked?' dh-needs-face':''}" data-dh="${dh.id}">
+          <div class="dh-picker-avatar">${blocked?'⚠️':dh.isFictional?'🤖':'🧬'}</div>
           <div class="dh-picker-name">${escHtml(dh.name)}</div>
-          <div class="dh-picker-type" style="font-size:.68rem">${dh.status==='needs_face'?'Needs face':dh.status==='needs_image_provider'?'Needs image':dh.type}</div>
-        </div>`).join('')}
+          <div class="dh-picker-type">${blocked?'Needs face':typeLabel}${qualScore?` · ${qualScore}%`:''}</div>
+        </div>`;
+        }).join('')}
       </div>
     </div>
 
     <div class="card gen-form-card">
-      <div class="gen-step-header mb-4">
+      <div class="gen-step-header mb-3">
         <span class="gen-step-num">3</span>
-        <span class="section-title" style="margin:0">Script & Settings</span>
-        <button class="advanced-toggle${advanced?' on':''}" id="adv-toggle">${advanced?'◉ Advanced / Prompt Mode':'○ Advanced / Prompt Mode'}</button>
-      </div>
-      ${advancedFields()}
-      <div class="form-group">
-        <label>Your Script <span>(spoken text)</span></label>
-        <textarea id="gen-script" rows="5" placeholder="Type what your digital human will say…"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Topic <span>(optional — for Auto-Write)</span></label>
-        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
-          <input type="text" id="gen-prompt" placeholder="e.g. Introduce my marketing agency" style="flex:1;min-width:180px">
-          <button class="btn btn-ghost btn-sm" id="auto-write-btn" style="flex-shrink:0;white-space:nowrap">✨ Auto-Write</button>
-        </div>
+        <span class="section-title" style="margin:0">Video Settings</span>
       </div>
       <div class="gen-settings-row">
         <div class="form-group"><label>Duration</label>
@@ -878,43 +985,36 @@ ${levelBanner()}
             <option value="professional">Professional</option>
             <option value="casual">Casual</option>
             <option value="energetic">Energetic</option>
-            <option value="calm">Calm</option>
-            <option value="motivational">Motivational</option>
             <option value="luxury">Luxury</option>
+            <option value="motivational">Motivational</option>
+            <option value="calm">Calm</option>
           </select>
         </div>
       </div>
-      <button class="btn btn-primary btn-lg btn-full gen-btn-desktop" id="gen-submit">🎬 Generate Video (${cost} cr)</button>
+      <button class="btn btn-primary btn-lg btn-full gen-btn-desktop" id="gen-submit">🎬 Generate Video (8 cr)</button>
     </div>
+
   </div>
 
   <div class="gen-sidebar">
     <div class="card mb-4" style="position:sticky;top:16px">
-      <div class="section-title mb-3">Cost Summary</div>
-      <div style="font-size:2.2rem;font-weight:800;color:var(--accent2);margin-bottom:8px" id="cost-display-desk">${cost} cr</div>
-      <p class="text-muted text-sm">You have <strong style="color:var(--text1)">${state.user.credits}</strong> credits</p>
-      <div class="mt-3">${qualityBadge(activeLevel)}</div>
-      <button class="btn btn-primary btn-lg btn-full mt-4" id="gen-submit-desk">🎬 Generate Video</button>
-    </div>
-    <div class="card">
-      <div class="section-title mb-3">What you get</div>
-      <ul style="color:var(--text3);font-size:.82rem;line-height:2.2;list-style:none">
-        <li>${activeLevel>=2?'✅':'⚠️'} ${activeLevel>=2?'Lip-synced / motion video':'Static image only'}</li>
-        <li>✅ AI voice generation</li>
-        <li>✅ Word-level captions</li>
-        <li>✅ Portrait 9:16 format</li>
-        <li>⏱️ ~2–5 min processing</li>
+      <div class="section-title mb-2">Output Level</div>
+      <div style="margin-bottom:12px">${qualityBadge(activeLevel)}</div>
+      <ul style="color:var(--text3);font-size:.8rem;line-height:2;list-style:none;margin:0 0 16px">
+        <li>${activeLevel >= 3 ? '✅' : '⚠️'} ${activeLevel >= 3 ? 'Real AI-generated scene' : 'No real scene generation'}</li>
+        <li>${activeLevel >= 1 ? '✅' : '⚠️'} ${activeLevel >= 1 ? 'AI voice generated' : 'No voice synthesis'}</li>
+        <li>✅ Captions included</li>
+        <li>⏱️ ~2–8 min processing</li>
       </ul>
+      <p class="text-muted text-sm">Credits: <strong style="color:var(--text1)">${state.user?.credits ?? 0}</strong></p>
+      <button class="btn btn-primary btn-lg btn-full mt-3" id="gen-submit-desk">🎬 Generate Video</button>
     </div>
   </div>
 </div>
 
 <div class="gen-sticky-bar">
-  <div>
-    <div style="font-size:.68rem;color:var(--text3);font-weight:600">COST</div>
-    <div style="font-size:1.1rem;font-weight:800;color:var(--accent2)" id="cost-display-mob">${cost} cr</div>
-  </div>
-  <button class="btn btn-primary" style="flex:1;max-width:280px;padding:12px 0;font-size:.95rem;font-weight:700" id="gen-submit-mob">🎬 Generate Video</button>
+  <div class="text-muted text-sm">${state.user?.credits ?? 0} credits</div>
+  <button class="btn btn-primary" style="flex:1;max-width:300px;padding:12px 0;font-weight:700" id="gen-submit-mob">🎬 Generate Video</button>
 </div>`;
       bindGenEvents();
       if (lastPlan) renderPlan(lastPlan);
@@ -924,28 +1024,27 @@ ${levelBanner()}
       const out = document.getElementById('plan-output');
       if (!out || !plan) return;
       const shots = (plan.shots || []).map(s => `
-        <div class="storyboard-shot">
-          <div class="storyboard-shot-num">Shot ${s.shot || '?'} · ${s.duration || '?'}s</div>
-          <div class="storyboard-shot-desc">${escHtml(s.description || '')}</div>
-          <div class="storyboard-shot-meta">🎥 ${escHtml(s.camera || '')} · ${escHtml(s.action || '')}</div>
-        </div>`).join('');
-      const lvlNeeded = plan.qualityLevelNeeded || 2;
+<div class="storyboard-shot">
+  <div class="storyboard-shot-num">Shot ${s.shot || '?'} · ${s.duration || '?'}s</div>
+  <div class="storyboard-shot-desc">${escHtml(s.description || '')}</div>
+  <div class="storyboard-shot-meta">🎥 ${escHtml(s.camera || '')} · ${escHtml(s.action || '')}</div>
+</div>`).join('');
+      const lvlNeeded = plan.qualityLevelNeeded || 3;
       const gap = lvlNeeded > activeLevel
-        ? `<div class="provider-warning" style="margin-top:10px">⚠ This plan recommends ${qualityBadge(lvlNeeded)} but your active output is ${qualityBadge(activeLevel)}. Configure a higher provider in Settings for the full result.</div>`
+        ? `<div class="engine-warn" style="margin-top:10px">⚠ This plan needs ${qualityBadge(lvlNeeded)} but your active output is ${qualityBadge(activeLevel)}. Upgrade provider in <button class="link-btn" data-page="settings">Settings</button>.</div>`
         : '';
       out.innerHTML = `
-      <div class="plan-card">
-        <div class="section-title mb-2">🧠 AI Production Plan</div>
-        ${plan.sceneDescription ? `<div class="text-sm mb-2"><b>Scene:</b> ${escHtml(plan.sceneDescription)}</div>` : ''}
-        ${plan.cameraDirection ? `<div class="text-sm mb-2"><b>Camera:</b> ${escHtml(plan.cameraDirection)}</div>` : ''}
-        ${plan.motionDirection ? `<div class="text-sm mb-2"><b>Motion:</b> ${escHtml(plan.motionDirection)}</div>` : ''}
-        <div class="text-sm mb-2"><b>Provider needed:</b> ${escHtml(plan.providerRecommendation || '')}</div>
-        ${shots ? `<div class="storyboard-list mt-2">${shots}</div>` : ''}
-        ${plan.script ? `<div class="mt-2"><button class="btn btn-ghost btn-sm" id="use-plan-script">Use this script →</button></div>` : ''}
-        ${gap}
-      </div>`;
-      const useBtn = document.getElementById('use-plan-script');
-      if (useBtn) useBtn.addEventListener('click', () => {
+<div class="plan-card mt-2">
+  <div class="section-title mb-2">🧠 AI Production Plan</div>
+  ${plan.sceneDescription ? `<div class="text-sm mb-1"><b>Scene:</b> ${escHtml(plan.sceneDescription)}</div>` : ''}
+  ${plan.cameraDirection ? `<div class="text-sm mb-1"><b>Camera:</b> ${escHtml(plan.cameraDirection)}</div>` : ''}
+  ${plan.motionDirection ? `<div class="text-sm mb-1"><b>Motion:</b> ${escHtml(plan.motionDirection)}</div>` : ''}
+  <div class="text-sm mb-2"><b>Provider needed:</b> ${escHtml(plan.providerRecommendation || '')}</div>
+  ${shots ? `<div class="storyboard-list mt-2">${shots}</div>` : ''}
+  ${plan.script ? `<div class="mt-2"><button class="btn btn-ghost btn-sm" id="use-plan-script">Use this script →</button></div>` : ''}
+  ${gap}
+</div>`;
+      document.getElementById('use-plan-script')?.addEventListener('click', () => {
         const se = document.getElementById('gen-script');
         if (se && plan.script) { se.value = plan.script; toast('Script applied.', 'success'); }
       });
@@ -956,7 +1055,7 @@ ${levelBanner()}
       const selDH = digitalHumans.find(d => d.id === selectedDH);
       if (blockedStatus(selDH)) {
         toast(selDH.status === 'needs_image_provider'
-          ? 'This synthetic human has no face. Configure an image provider in Settings or upload a face photo.'
+          ? 'This synthetic human has no face image. Configure an image provider in Settings or upload a face photo.'
           : 'This digital human has no face asset. Upload a face photo first.', 'error');
         state.selectedDH = selectedDH;
         navigate('view-human', { id: selectedDH });
@@ -968,21 +1067,22 @@ ${levelBanner()}
       const action = document.getElementById('gen-action')?.value.trim() || '';
       const product = document.getElementById('gen-product')?.value.trim() || '';
       const cameraStyle = document.getElementById('gen-camera')?.value || 'cinematic';
-      if (!script && !prompt && !scene) { toast('Enter a script, topic, or scene to generate.', 'error'); return; }
+      if (!script && !prompt && !scene) { toast('Describe the video — enter a prompt, scene, or script.', 'error'); return; }
       const fmt = document.getElementById('gen-format')?.value || '9:16';
       const dims = { '9:16': [1080,1920], '16:9': [1920,1080], '1:1': [1080,1080] }[fmt];
       ['gen-submit','gen-submit-desk','gen-submit-mob'].forEach(id => {
         const b = document.getElementById(id);
-        if (b) { b.disabled = true; b.textContent = '⏳ Submitting…'; }
+        if (b) { b.disabled = true; b.textContent = '⏳ Queuing…'; }
       });
       api('/api/videos/generate', { method: 'POST', body: JSON.stringify({
-        digitalHumanId: selectedDH, mode: selectedMode, script, prompt,
-        scene, action, product, cameraStyle,
+        digitalHumanId: selectedDH,
+        mode: 'director',
+        script, prompt, scene, action, product, cameraStyle,
         durationSec: Number(document.getElementById('gen-dur')?.value || 30),
         tone: document.getElementById('gen-tone')?.value || 'professional',
         outputW: dims[0], outputH: dims[1],
       })}).then(() => {
-        toast('Video job started! Redirecting to jobs…', 'success');
+        toast('Video job queued! Taking you to Jobs…', 'success');
         setTimeout(() => navigate('jobs'), 1200);
       }).catch(e => {
         toast(e.message, 'error');
@@ -992,23 +1092,11 @@ ${levelBanner()}
       });
     }
 
-    function updateCostDisplays() {
-      const cost = currentCost();
-      ['cost-display','cost-display-desk','cost-display-mob'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = `${cost} cr`;
-      });
-      const gd = document.getElementById('gen-submit');
-      if (gd) gd.textContent = `🎬 Generate Video (${cost} cr)`;
-    }
-
     function bindGenEvents() {
-      el.querySelectorAll('.mode-card').forEach(c => {
-        c.addEventListener('click', () => {
-          el.querySelectorAll('.mode-card').forEach(x => x.classList.remove('selected'));
-          c.classList.add('selected');
-          selectedMode = c.dataset.mode;
-          updateCostDisplays();
+      el.querySelectorAll('.example-prompt').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const promptEl = document.getElementById('gen-prompt');
+          if (promptEl) { promptEl.value = btn.dataset.prompt; promptEl.focus(); }
         });
       });
       el.querySelectorAll('.dh-picker-card').forEach(c => {
@@ -1036,28 +1124,31 @@ ${levelBanner()}
           }) });
           lastPlan = res.plan;
           renderPlan(res.plan);
-          toast('Plan ready. Review and generate.', 'success');
+          toast('Plan ready — review and generate.', 'success');
         } catch(e) { toast(e.message, 'error'); }
         btn.disabled = false; btn.textContent = '🧠 Plan with AI →';
       });
 
-      const autoBtn = document.getElementById('auto-write-btn');
-      if (autoBtn) autoBtn.addEventListener('click', async () => {
-        const prompt = document.getElementById('gen-prompt')?.value.trim();
-        if (!prompt) { toast('Enter a topic first.', 'error'); return; }
-        autoBtn.disabled = true; autoBtn.textContent = '✨ Writing…';
+      document.getElementById('auto-write-btn')?.addEventListener('click', async () => {
+        const promptEl = document.getElementById('gen-prompt');
+        const prompt = promptEl?.value.trim();
+        if (!prompt) { toast('Enter a prompt first.', 'error'); return; }
+        const btn = document.getElementById('auto-write-btn');
+        btn.disabled = true; btn.textContent = '✨ Writing…';
         const dur = Number(document.getElementById('gen-dur')?.value || 30);
         const words = Math.round(dur * 2.5);
-        const script = `Welcome. Today I want to talk to you about ${prompt}. This is something that can genuinely change how you think about your work. ${prompt} is more important than ever in 2026. Let me break it down simply. By the end of this video you will have everything you need. Stay with me.`.split(' ').slice(0, words).join(' ') + '.';
+        const script = `Welcome. Today I want to talk about ${prompt}. This is genuinely important — and I want to break it down clearly for you. ${prompt} is something that separates the people who win from those who don't. Let me show you exactly how. Stay with me.`.split(' ').slice(0, words).join(' ') + '.';
         const scriptEl = document.getElementById('gen-script');
         if (scriptEl) scriptEl.value = script;
-        autoBtn.disabled = false; autoBtn.textContent = '✨ Auto-Write';
-        toast('Script generated! Edit as needed.', 'success');
+        btn.disabled = false; btn.textContent = '✨ Auto-Write from Prompt';
+        toast('Script written! Edit as needed.', 'success');
       });
-      document.getElementById('gen-submit')?.addEventListener('click', () => doSubmit());
-      document.getElementById('gen-submit-desk')?.addEventListener('click', () => doSubmit());
-      document.getElementById('gen-submit-mob')?.addEventListener('click', () => doSubmit());
+
+      document.getElementById('gen-submit')?.addEventListener('click', doSubmit);
+      document.getElementById('gen-submit-desk')?.addEventListener('click', doSubmit);
+      document.getElementById('gen-submit-mob')?.addEventListener('click', doSubmit);
     }
+
     draw();
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
@@ -1774,20 +1865,30 @@ function pageCreateTwin(el) {
   function drawStep1(c) {
     c.innerHTML = `
 <div class="capture-step">
-  <div style="font-size:3rem;margin-bottom:16px">📷</div>
-  <div class="capture-step-title">Allow Camera &amp; Microphone</div>
-  <div class="capture-step-sub">We need access to your camera and microphone to capture your face and voice for your AI twin. Read the steps below before you begin.</div>
+  <div style="font-size:3rem;margin-bottom:12px">🧬</div>
+  <div class="capture-step-title">Build Your Digital Identity</div>
+  <div class="capture-step-sub">This capture session <strong>builds your AI identity pack</strong> — multiple reference frames, voice sample, and expression profile.<br><br>
+  <span style="color:var(--green);font-weight:600">After capture, you can generate unlimited new videos in any scene — London, Ferrari, studio, TikTok — all from a prompt.</span></div>
+  <div class="identity-explainer">
+    <div class="ie-item"><span class="ie-icon">📸</span><span>Reference frames extracted from capture</span></div>
+    <div class="ie-item"><span class="ie-icon">🎙️</span><span>Voice sample stored for synthesis</span></div>
+    <div class="ie-item"><span class="ie-icon">🎬</span><span>Capture is training data — never used as output</span></div>
+    <div class="ie-item"><span class="ie-icon">♾️</span><span>Generate unlimited new scenes after capture</span></div>
+  </div>
+  <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:12px 16px;font-size:.8rem;color:var(--text2);margin:12px 0 20px;max-width:400px;margin-left:auto;margin-right:auto">
+    <b>⚠ Important:</b> Capture builds your AI identity, NOT the final video. The generated videos are newly created by AI from your identity reference.
+  </div>
   <ul style="text-align:left;max-width:380px;margin:0 auto 16px;color:var(--text2);font-size:.85rem;line-height:1.9;list-style:none">
-    <li>1. Front-facing capture (5s)</li>
-    <li>2. Left & right angle (3s each)</li>
-    <li>3. Smile / expression capture</li>
-    <li>4. Voice consent recording</li>
-    <li>5. Review all captures</li>
+    <li>📸 Front-facing capture (5s)</li>
+    <li>↔️ Side angles (5s)</li>
+    <li>😊 Expressions: smile + blink</li>
+    <li>🎙️ Voice consent (4s)</li>
+    <li>🧬 Identity extraction</li>
   </ul>
-  <button class="btn btn-primary btn-lg" id="allow-cam-btn">Allow Camera &amp; Microphone</button>
+  <button class="btn btn-primary btn-lg" id="allow-cam-btn">Allow Camera &amp; Microphone →</button>
   <div id="step1-gate" style="color:var(--text3);font-size:.8rem;margin-top:10px"></div>
   <div style="margin-top:16px">
-    <button class="btn btn-ghost btn-sm" data-page="create-human">Use upload instead →</button>
+    <button class="btn btn-ghost btn-sm" data-page="create-human">Use file upload instead →</button>
   </div>
 </div>`;
     // 10s minimum read gate
@@ -2080,7 +2181,7 @@ function pageCreateTwin(el) {
           if (!voiceRes.ok) console.warn('Voice upload failed — continuing without voice');
         }
 
-        statusEl.textContent = 'Creating your AI twin…';
+        statusEl.innerHTML = '<div class="capture-status-row"><div class="loader" style="width:24px;height:24px;margin:0 8px 0 0"></div> Extracting identity pack from captures…</div>';
         const res = await api('/api/digital-humans/create-from-capture', {
           method: 'POST',
           body: JSON.stringify({
@@ -2091,15 +2192,27 @@ function pageCreateTwin(el) {
         });
 
         stopStream();
-        // Show success
+        const dh = res.digitalHuman;
+        const pack = dh.identityPack;
+        // Show identity pack results
         c.innerHTML = `
 <div class="capture-step" style="padding:20px 0">
-  <div style="font-size:3rem;margin-bottom:16px">🎉</div>
-  <div class="capture-step-title">AI Twin Created!</div>
-  <div class="capture-step-sub">"${escHtml(res.digitalHuman.name)}" is ready to use.</div>
-  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:24px">
-    <button class="btn btn-primary btn-lg" data-page="generate">Generate a Video Now</button>
-    <button class="btn btn-ghost" data-page="my-humans">View All Twins</button>
+  <div style="font-size:3rem;margin-bottom:12px">🧬</div>
+  <div class="capture-step-title">Identity Pack Created!</div>
+  <div class="capture-step-sub" style="color:var(--green)">"${escHtml(dh.name)}" — your Digital Human identity is built and stored.</div>
+  <div class="identity-pack-card">
+    <div class="ipc-title">Your AI Identity Pack</div>
+    <div class="ipc-row"><span>Face references</span><span class="ipc-val">${pack?.framesExtracted ?? 0} frames extracted</span></div>
+    <div class="ipc-row"><span>Identity quality</span><span class="ipc-val">${pack?.qualityScore ?? 0}%</span></div>
+    <div class="ipc-row"><span>Voice sample</span><span class="ipc-val">${audioBlob ? '✅ Stored' : '⚠ Not captured'}</span></div>
+    <div class="ipc-row"><span>Capture footage</span><span class="ipc-val" style="color:var(--text3)">🔒 Training reference only</span></div>
+  </div>
+  <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;padding:12px 16px;font-size:.82rem;color:var(--text2);max-width:380px;margin:12px auto">
+    ✅ Identity stored. Now you can generate unlimited new videos in any scene — all freshly created by AI using your identity reference.
+  </div>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px">
+    <button class="btn btn-primary btn-lg" data-page="generate">🎬 Generate a Video Now</button>
+    <button class="btn btn-ghost" data-page="my-humans">View Identity Library</button>
   </div>
 </div>`;
       } catch(e) {
@@ -2116,20 +2229,33 @@ function pageCreateTwin(el) {
 // ── Create Fictional AI Human ─────────────────────────────────────────────
 async function pageCreateFictional(el) {
   el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
-  let imageProvider = 'none';
-  try { const h = await api('/api/workers/health'); imageProvider = h.imageProvider || 'none'; } catch {}
+  let health = {};
+  try { health = await api('/api/workers/health'); } catch {}
+  const imageProvider = health.imageProvider || 'none';
   const hasImageProvider = imageProvider !== 'none';
 
   el.innerHTML = `
 <div style="max-width:640px">
-  <div class="section-title mb-2">Generate a Synthetic AI Human</div>
-  <div class="section-sub">Describe any person. We create a digital human with that identity.</div>
+  <div class="section-title mb-2">Create a Synthetic AI Human</div>
+  <div class="section-sub">No camera, no upload needed. Describe the person — AI builds the identity.</div>
+
+  <div class="identity-explainer" style="margin:16px 0">
+    <div class="ie-item"><span class="ie-icon">✍️</span><span>Describe appearance, personality, and voice</span></div>
+    <div class="ie-item"><span class="ie-icon">🤖</span><span>AI generates face image automatically</span></div>
+    <div class="ie-item"><span class="ie-icon">🎬</span><span>Generate any scene with this identity from a prompt</span></div>
+    <div class="ie-item"><span class="ie-icon">🏷️</span><span>Always marked AI-generated — never claimed as real</span></div>
+  </div>
 
   ${hasImageProvider
-    ? `<div class="plan-card mt-4" style="border-color:rgba(34,197,94,.3)">🖼 Image provider <b>${escHtml(imageProvider)}</b> is configured — a face photo will be generated automatically.</div>`
-    : `<div class="provider-warning mt-4">⚠ No image provider configured — your synthetic human will need a manual face photo. Configure DALL·E, Stability AI, or FAL in <button class="link-btn" data-page="settings">Settings</button> for auto face generation.</div>`}
+    ? `<div class="plan-card" style="border-color:rgba(34,197,94,.3)">✅ Image provider <b>${escHtml(imageProvider)}</b> active — face photo generated automatically from description.</div>`
+    : `<div class="engine-warn">⚠ No image provider configured. Configure DALL·E, Stability AI, or FAL in <button class="link-btn" data-page="settings">Settings</button> for auto face generation — or add a face photo after creation.</div>`}
 
   <div class="card mt-4">
+    <div class="form-group">
+      <label>Name <span style="color:var(--text3)">(how you'll refer to this human)</span></label>
+      <input type="text" id="fc-name" placeholder="e.g. Aria, James Sterling, Nova" style="width:100%">
+    </div>
+
     <div class="form-row">
       <div class="form-group">
         <label>Gender</label>
@@ -2185,12 +2311,26 @@ async function pageCreateFictional(el) {
           <option value="deep-male">Deep Male Professional</option>
           <option value="warm-female" selected>Warm Female Presenter</option>
           <option value="young-energetic">Young &amp; Energetic</option>
-          <option value="british">British Accent</option>
-          <option value="american">American Neutral</option>
-          <option value="french">French Accent</option>
-          <option value="west-african">West African Accent</option>
+          <option value="authoritative">Authoritative</option>
+          <option value="storyteller">Storyteller</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Accent</label>
+        <select id="fc-accent">
+          <option value="american">American Neutral</option>
+          <option value="british">British</option>
+          <option value="australian">Australian</option>
+          <option value="french">French</option>
+          <option value="spanish">Spanish</option>
+          <option value="nigerian">Nigerian</option>
+          <option value="south-african">South African</option>
+          <option value="indian">Indian</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
       <div class="form-group">
         <label>Personality</label>
         <select id="fc-personality">
@@ -2202,55 +2342,62 @@ async function pageCreateFictional(el) {
           <option value="casual">Casual &amp; Relatable</option>
         </select>
       </div>
-    </div>
-
-    <div class="form-group">
-      <label>Primary Use Case</label>
-      <select id="fc-usecase">
-        <option value="ads">Ads &amp; Marketing</option>
-        <option value="education">Teaching &amp; Education</option>
-        <option value="social">Social Media</option>
-        <option value="sales">Sales</option>
-        <option value="podcast">Podcast &amp; Hosting</option>
-        <option value="brand">Brand Ambassador</option>
-      </select>
+      <div class="form-group">
+        <label>Primary Use Case</label>
+        <select id="fc-usecase">
+          <option value="ads">Ads &amp; Marketing</option>
+          <option value="education">Teaching &amp; Education</option>
+          <option value="social">Social Media</option>
+          <option value="sales">Sales</option>
+          <option value="podcast">Podcast &amp; Hosting</option>
+          <option value="brand">Brand Ambassador</option>
+        </select>
+      </div>
     </div>
 
     <div class="consent-box" style="background:rgba(234,179,8,.06);border-color:rgba(234,179,8,.25)">
-      <h4 style="color:var(--yellow)">⚠️ Fictional AI Identity</h4>
-      <p>This creates a completely fictional AI identity. No real person's likeness will be used. Clearly marked as AI-generated.</p>
+      <h4 style="color:var(--yellow)">⚠️ Synthetic AI Identity</h4>
+      <p>This creates a completely fictional AI identity. No real person's likeness will be used. All videos produced are clearly AI-generated.</p>
     </div>
 
     <div class="checkbox-group mb-4" style="margin-top:16px">
       <input type="checkbox" id="fc-consent-check">
-      <label for="fc-consent-check">I confirm this is a fictional AI human and I will not claim it is a real person.</label>
+      <label for="fc-consent-check">I confirm this is a fictional AI human. I will not claim it is a real person or use it to impersonate anyone.</label>
     </div>
 
-    <button class="btn btn-primary btn-lg" id="fc-generate-btn">✨ Generate Synthetic AI Human</button>
+    <button class="btn btn-primary btn-lg" id="fc-generate-btn">🧬 Build Synthetic Identity</button>
     <div id="fc-status" style="margin-top:12px"></div>
   </div>
 </div>`;
 
   document.getElementById('fc-generate-btn').addEventListener('click', async () => {
+    const name = document.getElementById('fc-name')?.value.trim();
     const appearance = document.getElementById('fc-appearance')?.value.trim();
     const consent = document.getElementById('fc-consent-check')?.checked;
+    if (!name) { toast('Please give your synthetic human a name.', 'error'); return; }
     if (!appearance) { toast('Please describe the appearance of your AI human.', 'error'); return; }
     if (!consent) { toast('Please confirm this is a fictional AI human.', 'error'); return; }
 
     const btn = document.getElementById('fc-generate-btn');
     const statusEl = document.getElementById('fc-status');
-    btn.disabled = true; btn.textContent = '✨ Generating your AI human…';
-    statusEl.innerHTML = `<div class="loader" style="margin:0 auto"></div>`;
+    btn.disabled = true; btn.textContent = '🧬 Building identity…';
+    statusEl.innerHTML = `
+<div style="display:flex;align-items:center;gap:10px;color:var(--text2);font-size:.88rem">
+  <div class="loader" style="width:20px;height:20px;flex-shrink:0"></div>
+  <span>AI is building the identity pack from your description…</span>
+</div>`;
 
     try {
       const res = await api('/api/digital-humans/create-fictional', {
         method: 'POST',
         body: JSON.stringify({
+          name,
           gender: document.getElementById('fc-gender')?.value,
           ageRange: document.getElementById('fc-age')?.value,
           appearance,
           style: document.getElementById('fc-style')?.value,
           voiceStyle: document.getElementById('fc-voice')?.value,
+          accent: document.getElementById('fc-accent')?.value,
           personality: document.getElementById('fc-personality')?.value,
           useCase: document.getElementById('fc-usecase')?.value,
           archetype: document.getElementById('fc-archetype')?.value,
@@ -2259,26 +2406,31 @@ async function pageCreateFictional(el) {
       const dh = res.digitalHuman;
       state.selectedDH = dh.id;
       const isReady = dh.status === 'ready';
+      const pack = dh.identityPack;
       statusEl.innerHTML = `
-<div class="card" style="border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.06);margin-top:16px">
-  <div style="font-size:2rem;margin-bottom:8px">✅</div>
-  <div class="font-bold mb-2" style="font-size:1.1rem">${escHtml(dh.name)} created!</div>
-  <div class="text-muted text-sm mb-3">Synthetic AI · ${escHtml(dh.archetype||'custom')} · Voice: ${escHtml(dh.defaultVoice||'')}</div>
+<div class="identity-pack-card" style="margin-top:16px">
+  <div class="ipc-title">🧬 Synthetic Identity Created: ${escHtml(dh.name)}</div>
+  <div class="ipc-row"><span>Type</span><span class="ipc-val">Synthetic AI Human · ${escHtml(dh.archetype||'custom')}</span></div>
+  <div class="ipc-row"><span>Voice style</span><span class="ipc-val">${escHtml(dh.defaultVoice||'AI-synthesized')}</span></div>
+  <div class="ipc-row"><span>Face image</span><span class="ipc-val">${isReady ? '✅ Generated' : '⚠ Not yet generated'}</span></div>
+  <div class="ipc-row"><span>Identity source</span><span class="ipc-val">🤖 AI-generated from description</span></div>
+</div>
+<div style="background:${isReady ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.07)'};border:1px solid ${isReady ? 'rgba(34,197,94,.2)' : 'rgba(239,68,68,.2)'};border-radius:8px;padding:12px 16px;font-size:.82rem;color:var(--text2);margin:12px 0">
   ${isReady
-    ? `<div class="plan-card" style="border-color:rgba(34,197,94,.3);margin-bottom:16px">🎉 Face image generated automatically — ready to generate video.</div>`
-    : `<div class="provider-warning" style="margin-bottom:16px">⚠ Face generation requires an image provider. Upload a face photo manually or configure DALL·E / Stability / FAL in Settings.</div>`}
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    ${isReady
-      ? `<button class="btn btn-primary" data-page="generate">🎬 Generate Video →</button>`
-      : `<button class="btn btn-primary" id="fic-upload-face-btn">📸 Upload Face Photo →</button>`}
-    <button class="btn btn-ghost btn-sm" data-page="my-humans">View All Humans</button>
-  </div>
+    ? '✅ Face generated automatically. Ready to generate video scenes from a prompt.'
+    : '⚠ Configure an image provider in Settings for auto face generation, or add a face photo manually after creation.'}
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  ${isReady
+    ? `<button class="btn btn-primary" data-page="generate">🎬 Generate First Video →</button>`
+    : `<button class="btn btn-ghost" id="fic-add-face-btn">📸 Add Face Photo</button>`}
+  <button class="btn btn-ghost btn-sm" data-page="my-humans">View Identity Library</button>
 </div>`;
-      document.getElementById('fic-upload-face-btn')?.addEventListener('click', () => navigate('view-human', { id: dh.id }));
+      document.getElementById('fic-add-face-btn')?.addEventListener('click', () => navigate('view-human', { id: dh.id }));
       btn.style.display = 'none';
     } catch(e) {
       toast(e.message, 'error');
-      btn.disabled = false; btn.textContent = '✨ Generate Synthetic AI Human';
+      btn.disabled = false; btn.textContent = '🧬 Build Synthetic Identity';
       statusEl.innerHTML = '';
     }
   });
@@ -2362,27 +2514,47 @@ async function pageSettings(el) {
 </div>
 
 <div class="settings-section">
-  <div class="settings-section-title">AI Video Generation (Quality Levels 3–4)</div>
+  <div class="settings-section-title">🎬 AI Video Generation (Levels 3–4)</div>
   <div class="settings-row">
     <div class="settings-label">Video Provider</div>
     <div class="settings-input">
       <select id="set-video-provider" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="static" ${get('VIDEO_GEN_PROVIDER')==='static'?'selected':''}>Static Fallback (Level 1 — no real motion)</option>
-        <option value="runway" ${get('VIDEO_GEN_PROVIDER')==='runway'?'selected':''}>Runway Gen-3 (Level 4 full scene)</option>
-        <option value="kling" ${get('VIDEO_GEN_PROVIDER')==='kling'?'selected':''}>Kling AI (Level 4 full scene)</option>
-        <option value="pika" ${get('VIDEO_GEN_PROVIDER')==='pika'?'selected':''}>Pika Labs (Level 3 motion)</option>
-        <option value="luma" ${get('VIDEO_GEN_PROVIDER')==='luma'?'selected':''}>Luma Dream Machine (Level 3 motion)</option>
-        <option value="hailuo" ${get('VIDEO_GEN_PROVIDER')==='hailuo'?'selected':''}>Hailuo / MiniMax (Level 3 motion)</option>
-        <option value="replicate" ${get('VIDEO_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (Level 3 motion)</option>
+        <option value="static" ${get('VIDEO_GEN_PROVIDER')==='static'?'selected':''}>None / Static (Level 0 — still image + audio only)</option>
+        <optgroup label="── Level 4: Cinematic AI ──">
+          <option value="runway" ${get('VIDEO_GEN_PROVIDER')==='runway'?'selected':''}>Runway Gen-3 (Level 4 — best identity preservation)</option>
+          <option value="kling" ${get('VIDEO_GEN_PROVIDER')==='kling'?'selected':''}>Kling AI (Level 4 — cinematic full scene)</option>
+          <option value="veo" ${get('VIDEO_GEN_PROVIDER')==='veo'?'selected':''}>Veo 2 by Google (Level 3 — high realism)</option>
+          <option value="seedance" ${get('VIDEO_GEN_PROVIDER')==='seedance'?'selected':''}>Seedance by ByteDance (Level 3 — fast cinematic)</option>
+        </optgroup>
+        <optgroup label="── Level 3: AI Motion ──">
+          <option value="pika" ${get('VIDEO_GEN_PROVIDER')==='pika'?'selected':''}>Pika Labs (Level 3)</option>
+          <option value="luma" ${get('VIDEO_GEN_PROVIDER')==='luma'?'selected':''}>Luma Dream Machine (Level 3)</option>
+          <option value="hailuo" ${get('VIDEO_GEN_PROVIDER')==='hailuo'?'selected':''}>Hailuo / MiniMax (Level 3)</option>
+          <option value="replicate" ${get('VIDEO_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (Level 3)</option>
+        </optgroup>
       </select>
-      <div class="settings-hint">Static = still image + audio only. Cloud providers generate real AI video.</div>
+      <div class="settings-hint">Level 0 = static image. Level 3+ = real AI-generated video scenes from your identity reference.</div>
     </div>
   </div>
   <div class="settings-row">
-    <div class="settings-label">Video API Key</div>
+    <div class="settings-label">API Key</div>
     <div class="settings-input">
-      <input type="password" id="set-video-key" value="${escHtml(get('VIDEO_GEN_API_KEY'))}" placeholder="Provider API key">
-      <div class="settings-hint">Required for the selected cloud video provider.</div>
+      <input type="password" id="set-video-key" value="${escHtml(get('VIDEO_GEN_API_KEY'))}" placeholder="Runway / Kling / Pika / Luma / Replicate API key">
+      <div class="settings-hint">Used for Runway, Kling, Pika, Luma, Hailuo, Replicate.</div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">Veo API Key</div>
+    <div class="settings-input">
+      <input type="password" id="set-veo-key" value="${escHtml(get('VEO_API_KEY'))}" placeholder="Google Vertex AI key (for Veo 2)">
+      <div class="settings-hint">Only needed when provider is set to Veo. Get from Google Cloud Console.</div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">Seedance API Key</div>
+    <div class="settings-input">
+      <input type="password" id="set-seedance-key" value="${escHtml(get('SEEDANCE_API_KEY'))}" placeholder="ByteDance Seedance API key">
+      <div class="settings-hint">Only needed when provider is set to Seedance.</div>
     </div>
   </div>
 </div>
@@ -2459,6 +2631,8 @@ async function pageSettings(el) {
           { key: 'FFMPEG_PATH', value: document.getElementById('set-ffmpeg')?.value || 'ffmpeg' },
           { key: 'VIDEO_GEN_PROVIDER', value: document.getElementById('set-video-provider')?.value || 'static' },
           { key: 'VIDEO_GEN_API_KEY', value: document.getElementById('set-video-key')?.value || '' },
+          { key: 'VEO_API_KEY', value: document.getElementById('set-veo-key')?.value || '' },
+          { key: 'SEEDANCE_API_KEY', value: document.getElementById('set-seedance-key')?.value || '' },
           { key: 'IMAGE_GEN_PROVIDER', value: document.getElementById('set-image-provider')?.value || 'none' },
           { key: 'IMAGE_GEN_API_KEY', value: document.getElementById('set-image-key')?.value || '' },
         ];
