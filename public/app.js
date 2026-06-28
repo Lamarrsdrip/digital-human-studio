@@ -19,7 +19,6 @@ function uid() { return state.user?.id || ''; }
 function api(path, opts = {}) {
   const headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-  if (state.user?.id) headers['x-user-id'] = state.user.id;
   return fetch(path, { ...opts, headers })
     .then(async r => {
       if (r.status === 401) {
@@ -40,7 +39,9 @@ function uploadFile(path, file, extraFields = {}) {
   const form = new FormData();
   form.append('file', file);
   for (const [k, v] of Object.entries(extraFields)) form.append(k, v);
-  return fetch(path, { method: 'POST', headers: { 'x-user-id': uid() }, body: form })
+  const headers = {};
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  return fetch(path, { method: 'POST', headers, body: form })
     .then(r => r.json().then(d => { if (d.error) throw new Error(d.error); return d; }));
 }
 
@@ -54,12 +55,29 @@ function toast(msg, type = 'info') {
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────
+const VALID_PAGES = ['dashboard','my-humans','create-human','create-twin','create-fictional',
+  'view-human','generate','ai-ads','ai-presenter','ai-influencer','jobs','api-keys',
+  'workers','credits','profile','settings','admin'];
+
 function navigate(page, params = {}) {
   state.page = page;
   state.params = params;
   clearInterval(state.pollTimer);
+  // Persist page in URL hash so refresh restores same page
+  try {
+    if (history.replaceState) history.replaceState(null, '', '#' + page);
+    else location.hash = page;
+  } catch(e) {}
   render();
 }
+
+window.addEventListener('popstate', () => {
+  const hash = location.hash.replace('#', '').trim();
+  if (hash && state.user && VALID_PAGES.includes(hash)) {
+    state.page = hash;
+    render();
+  }
+});
 
 function render() {
   const hp = document.getElementById('homepage');
@@ -411,8 +429,9 @@ ${state.digitalHumans.length === 0 ? `
 <div class="card" style="text-align:center;padding:48px">
   <div style="font-size:3rem;margin-bottom:16px">🧑‍💻</div>
   <h3 style="margin-bottom:8px">Create your first Digital Human</h3>
-  <p class="text-muted" style="margin-bottom:24px">Upload your face and voice to start generating AI videos</p>
-  <button class="btn btn-primary btn-lg" data-page="create-human">Create Digital Human</button>
+  <p class="text-muted" style="margin-bottom:24px">Use your camera to capture your face and voice in 2 minutes.</p>
+  <button class="btn btn-primary btn-lg" data-page="create-twin">📸 Create My AI Twin</button>
+  <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-page="create-human">or upload files instead</button></div>
 </div>` : `
 <div class="flex items-center justify-between mb-4">
   <div><div class="section-title">Your Digital Humans</div></div>
@@ -468,15 +487,23 @@ ${digitalHumans.length === 0 ? `<div class="empty-state"><div class="icon">🧑<
 }
 
 function renderDHCard(dh) {
-  const statusBadge = dh.status === 'ready' ? 'badge-green' : dh.status === 'taken_down' ? 'badge-red' : 'badge-yellow';
-  const typeIcons = { self: '🧑', male: '👨', female: '👩', brand: '🏢', presenter: '🎤', teacher: '📚', salesperson: '💼', influencer: '⭐', support: '🎧' };
+  const statusMap = {
+    ready:      { cls: 'badge-green',  label: '✓ Ready' },
+    draft:      { cls: 'badge-yellow', label: '⚠ Draft' },
+    needs_face: { cls: 'badge-red',    label: '📷 Needs face upload' },
+    taken_down: { cls: 'badge-red',    label: '✕ Taken down' },
+  };
+  const st = statusMap[dh.status] || { cls: 'badge-yellow', label: dh.status };
+  const typeIcons = { self: '🧑', male: '👨', female: '👩', brand: '🏢', presenter: '🎤', teacher: '📚', salesperson: '💼', influencer: '⭐', support: '🎧', fictional: '✨' };
+  const noFaceWarn = dh.status === 'needs_face' ? `<div style="font-size:.72rem;color:var(--yellow);margin-top:4px">Upload a face photo to enable video generation</div>` : '';
   return `<div class="dh-card" data-id="${dh.id}">
   <div class="dh-avatar"><span class="dh-avatar-placeholder">${typeIcons[dh.type] || '🧑'}</span></div>
   <div class="dh-card-body">
     <div class="dh-card-name">${escHtml(dh.name)}</div>
     <div class="dh-card-type">${dh.type} · ${dh.defaultVoice?.split('/').pop() || 'Default voice'}</div>
+    ${noFaceWarn}
     <div class="dh-card-footer">
-      <span class="badge ${statusBadge}">${dh.status}</span>
+      <span class="badge ${st.cls}">${st.label}</span>
       <button class="btn btn-danger btn-sm" data-id="${dh.id}" onclick="event.stopPropagation()">Delete</button>
     </div>
   </div>
@@ -846,6 +873,13 @@ async function pageGenerate(el) {
 
     function doSubmit(btn) {
       if (!selectedDH) { toast('Select a digital human first.', 'error'); return; }
+      // Block generation if selected DH has no face asset
+      const selDH = digitalHumans.find(d => d.id === selectedDH);
+      if (selDH && selDH.status === 'needs_face') {
+        toast('This digital human has no face asset. Upload a face photo on its profile page first.', 'error');
+        navigate('view-human', { id: selectedDH });
+        return;
+      }
       const script = document.getElementById('gen-script')?.value.trim();
       const prompt = document.getElementById('gen-prompt')?.value.trim();
       if (!script && !prompt) { toast('Enter a script or topic to generate.', 'error'); return; }
@@ -895,8 +929,23 @@ async function pageGenerate(el) {
           el.querySelectorAll('.dh-picker-card').forEach(x => x.classList.remove('selected'));
           c.classList.add('selected');
           selectedDH = c.dataset.dh;
+          // Warn if selected DH has no face asset
+          const dh = digitalHumans.find(d => d.id === selectedDH);
+          const warnEl = document.getElementById('dh-no-face-warn');
+          if (warnEl) {
+            warnEl.style.display = (dh?.status === 'needs_face') ? 'block' : 'none';
+          }
         });
       });
+      // Insert warning placeholder after DH picker
+      const pickerRow = el.querySelector('.dh-picker-row');
+      if (pickerRow && !document.getElementById('dh-no-face-warn')) {
+        const warn = document.createElement('div');
+        warn.id = 'dh-no-face-warn';
+        warn.style.cssText = 'display:none;background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:8px;padding:10px 14px;font-size:.8rem;color:var(--yellow);margin-top:8px';
+        warn.innerHTML = '⚠️ This digital human has no face asset. <button data-page="view-human" style="background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:.8rem">Upload a face photo →</button>';
+        pickerRow.after(warn);
+      }
       const autoBtn = document.getElementById('auto-write-btn');
       if (autoBtn) autoBtn.addEventListener('click', async () => {
         const prompt = document.getElementById('gen-prompt')?.value.trim();
@@ -1090,6 +1139,7 @@ function renderJobCard(job) {
   <div class="job-card-meta">Stage: ${job.stage || '—'} · ${new Date(job.createdAt).toLocaleString()}</div>
   <div class="progress-bar"><div class="progress-fill ${fillClass}" style="width:${pct}%"></div></div>
   ${job.error ? `<div class="error-box">${escHtml(job.error)}</div>` : ''}
+  ${job.warning ? `<div style="background:rgba(234,179,8,.07);border:1px solid rgba(234,179,8,.25);border-radius:8px;padding:8px 12px;font-size:.78rem;color:var(--yellow);margin-top:6px">⚠️ ${escHtml(job.warning)}</div>` : ''}
   <div class="job-actions">
     ${job.status === 'complete' && job.outputPath ? `<a href="${job.outputPath}" download class="btn btn-success btn-sm">⬇ Download</a>
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('vid-${job.id}').style.display='block';this.style.display='none'">▶ Preview</button>` : ''}
@@ -1502,6 +1552,19 @@ function pageCreateTwin(el) {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { mediaRecorder.stop(); } catch {} }
   }
 
+  // iOS Safari requires srcObject set + explicit play() after element is in DOM
+  async function attachCamera(videoId) {
+    const video = document.getElementById(videoId);
+    if (!video || !stream) return;
+    video.setAttribute('autoplay', '');
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.muted = true;
+    video.srcObject = stream;
+    try { await video.play(); } catch(e) { console.warn('Camera play() blocked:', e.name); }
+  }
+
   function progressBar() {
     return `<div class="steps-progress">${Array.from({length: TOTAL_STEPS}, (_, i) => {
       const cls = i + 1 < currentStep ? 'done' : i + 1 === currentStep ? 'active' : '';
@@ -1548,18 +1611,35 @@ function pageCreateTwin(el) {
   </div>
 </div>`;
     document.getElementById('allow-cam-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('allow-cam-btn');
+      btn.disabled = true; btn.textContent = 'Requesting access…';
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('Camera API not available. Use HTTPS or localhost.'), { name: 'UnsupportedError' });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 }
+        });
         await startSession();
         nextStep();
       } catch(e) {
+        let msg = e.message || 'Camera error.';
+        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')
+          msg = 'Camera permission denied. Check your browser settings and allow camera access.';
+        else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError')
+          msg = 'No camera found on this device.';
+        else if (e.name === 'NotReadableError' || e.name === 'TrackStartError')
+          msg = 'Camera is in use by another app. Close other apps and try again.';
+        else if (e.name === 'UnsupportedError' || location.protocol === 'http:' && location.hostname !== 'localhost')
+          msg = 'Camera requires HTTPS. Please use a secure connection or localhost.';
         c.innerHTML = `<div class="capture-step">
           <div style="font-size:2.5rem;margin-bottom:12px">⚠️</div>
-          <div class="capture-step-title">Camera Access Denied</div>
-          <div class="capture-step-sub">${escHtml(e.message || 'Camera permission was denied.')}</div>
-          <p class="text-muted text-sm mb-4">You can still create your AI twin by uploading existing photos and videos.</p>
+          <div class="capture-step-title">Camera Not Available</div>
+          <div class="capture-step-sub" style="color:var(--red)">${escHtml(msg)}</div>
+          <p style="color:var(--text3);font-size:.82rem;margin:12px 0 20px">You can still create your AI twin by uploading existing photos and videos.</p>
           <button class="btn btn-primary" data-page="create-human">Upload Files Instead</button>
+          <button class="btn btn-ghost" id="retry-cam-btn" style="margin-top:8px">↺ Try Again</button>
         </div>`;
+        document.getElementById('retry-cam-btn')?.addEventListener('click', () => drawStep1(c));
       }
     });
   }
@@ -1581,8 +1661,7 @@ function pageCreateTwin(el) {
   <div id="step2-countdown" style="color:var(--accent2);font-weight:700;margin-bottom:12px"></div>
   <button class="btn btn-primary" id="step2-next">Continue →</button>
 </div>`;
-    const video = document.getElementById('cam-preview');
-    if (stream) { video.srcObject = stream; }
+    attachCamera('cam-preview');
     let count = 3;
     const countEl = document.getElementById('step2-countdown');
     countEl.textContent = `Auto-advancing in ${count}s…`;
@@ -1622,8 +1701,7 @@ function pageCreateTwin(el) {
     <button class="btn btn-primary" id="step3-record-btn">Start Recording (5s)</button>
   </div>
 </div>`;
-    const video = document.getElementById('cam-step3');
-    if (stream) video.srcObject = stream;
+    attachCamera('cam-step3');
     document.getElementById('step3-record-btn').addEventListener('click', () => {
       const statusEl = document.getElementById('step3-status');
       statusEl.innerHTML = `<div class="record-badge">Recording 5s...</div>`;
@@ -1649,8 +1727,7 @@ function pageCreateTwin(el) {
     <button class="btn btn-primary" id="step4-record-btn">Start Recording (5s)</button>
   </div>
 </div>`;
-    const video = document.getElementById('cam-step4');
-    if (stream) video.srcObject = stream;
+    attachCamera('cam-step4');
     document.getElementById('step4-record-btn').addEventListener('click', () => {
       const statusEl = document.getElementById('step4-status');
       statusEl.innerHTML = `<div class="record-badge">Recording 5s — turn head left, then right...</div>`;
@@ -1674,8 +1751,7 @@ function pageCreateTwin(el) {
     <button class="btn btn-primary" id="step5-record-btn">Record Expressions (3s)</button>
   </div>
 </div>`;
-    const video = document.getElementById('cam-step5');
-    if (stream) video.srcObject = stream;
+    attachCamera('cam-step5');
     document.getElementById('step5-record-btn').addEventListener('click', () => {
       const statusEl = document.getElementById('step5-status');
       statusEl.innerHTML = `<div class="record-badge">Recording — smile and blink...</div>`;
@@ -1700,12 +1776,23 @@ function pageCreateTwin(el) {
       if (!stream) { toast('Microphone not available.', 'error'); return; }
       const statusEl = document.getElementById('step6-status');
       statusEl.innerHTML = `<div class="record-badge">Recording 4s — speak clearly...</div><div class="waveform" style="justify-content:center;margin-top:12px"><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>`;
-      const audioOnly = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      // Use audio-only stream — do not record video for voice consent
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) { toast('No microphone detected.', 'error'); return; }
+      const audioStream = new MediaStream(audioTracks);
+      const audioMime = ['audio/webm;codecs=opus','audio/webm','video/webm']
+        .find(m => MediaRecorder.isTypeSupported(m)) || '';
+      const audioOnly = new MediaRecorder(audioStream, audioMime ? { mimeType: audioMime } : {});
       const chunks = [];
       audioOnly.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       audioOnly.onstop = () => {
-        audioBlob = new Blob(chunks, { type: 'video/webm' });
-        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Voice consent captured</div><button class="btn btn-primary" id="step6-next">Continue →</button>`;
+        audioBlob = new Blob(chunks, { type: audioMime || 'audio/webm' });
+        if (audioBlob.size < 500) {
+          statusEl.innerHTML = `<div style="color:var(--red);margin-bottom:12px">⚠️ Recording was silent or too short. Please try again.</div><button class="btn btn-primary" id="step6-record-btn">🎙️ Record Again</button>`;
+          document.getElementById('step6-record-btn')?.addEventListener('click', arguments.callee.caller);
+          return;
+        }
+        statusEl.innerHTML = `<div style="color:var(--green);font-weight:700;margin-bottom:12px">✅ Voice consent captured (${Math.round(audioBlob.size/1024)}KB)</div><button class="btn btn-primary" id="step6-next">Continue →</button>`;
         document.getElementById('step6-next')?.addEventListener('click', nextStep);
       };
       audioOnly.start(200);
@@ -1770,15 +1857,27 @@ function pageCreateTwin(el) {
       const statusEl = document.getElementById('step8-status');
 
       try {
-        // Upload captured video if we have blobs
+        const authHeaders = state.token ? { 'Authorization': `Bearer ${state.token}` } : {};
+        // Upload face capture video
         if (videoBlobs.length > 0 && captureSessionId) {
           const combinedBlob = new Blob(videoBlobs, { type: 'video/webm' });
-          statusEl.textContent = 'Uploading capture…';
-          await fetch(`/api/capture/session/upload?sessionId=${captureSessionId}`, {
+          statusEl.textContent = 'Uploading face capture…';
+          const faceRes = await fetch(`/api/capture/session/upload?sessionId=${captureSessionId}&type=face`, {
             method: 'POST',
-            headers: { 'x-user-id': uid(), 'content-type': 'video/webm' },
+            headers: { ...authHeaders, 'content-type': 'video/webm' },
             body: combinedBlob,
           });
+          if (!faceRes.ok) throw new Error('Face upload failed');
+        }
+        // Upload voice consent separately
+        if (audioBlob && captureSessionId) {
+          statusEl.textContent = 'Uploading voice consent…';
+          const voiceRes = await fetch(`/api/capture/session/upload?sessionId=${captureSessionId}&type=voice`, {
+            method: 'POST',
+            headers: { ...authHeaders, 'content-type': audioBlob.type || 'audio/webm' },
+            body: audioBlob,
+          });
+          if (!voiceRes.ok) console.warn('Voice upload failed — continuing without voice');
         }
 
         statusEl.textContent = 'Creating your AI twin…';
@@ -2113,6 +2212,10 @@ if (!document.getElementById('toasts')) {
 }
 
 async function restoreSession() {
+  // Restore page from URL hash before anything else
+  const hash = location.hash.replace('#', '').trim();
+  if (hash && VALID_PAGES.includes(hash)) state.page = hash;
+
   if (!state.token) return;
   try {
     const r = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${state.token}` } });

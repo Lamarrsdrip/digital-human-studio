@@ -9,7 +9,7 @@ import fs, { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from
 import path, { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { createHash, createHmac, randomBytes, randomUUID } from 'crypto';
+import { createHash, createHmac, randomBytes, randomUUID, pbkdf2Sync } from 'crypto';
 import Busboy from 'busboy';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,7 +68,7 @@ function saveDb(db) {
 
 function defaultDb() {
   const adminId = randomUUID();
-  const adminHash = sha256('dhs:Admin2024!');
+  const adminHash = hashPassword('Admin2024!');
   return {
     users: [{
       id: adminId, email: 'admin@digitalhuman.local', passwordHash: adminHash,
@@ -88,6 +88,7 @@ function defaultDb() {
       { key: 'DEFAULT_VOICE',    value: 'en_US-amy-medium' },
       { key: 'GPU_WORKER_URL',   value: GPU_WORKER_URL  },
       { key: 'GEMINI_API_KEY',   value: GEMINI_KEY      },
+      { key: 'GEMINI_MODEL',     value: 'gemini-2.5-flash-lite' },
       { key: 'VOICE_API_KEY',    value: VOICE_API_KEY   },
       { key: 'MUAPI_API_KEY',    value: MUAPI_KEY       },
     ],
@@ -106,7 +107,13 @@ function sha256(str) {
   return createHash('sha256').update(str).digest('hex');
 }
 
-function hashPassword(pw) { return sha256('dhs:' + pw); }
+// PBKDF2 password hashing (100k iterations, no external deps)
+const PBKDF2_SALT = process.env.PASSWORD_SALT || 'dhs-pbkdf2-salt-2026';
+function hashPassword(pw) {
+  return pbkdf2Sync(pw, PBKDF2_SALT, 100000, 32, 'sha256').toString('hex');
+}
+// Old hash format — used only for migration check
+function hashPasswordLegacy(pw) { return sha256('dhs:' + pw); }
 
 // ─── JWT Auth ─────────────────────────────────────────────────────────────────
 const JWT_SECRET = process.env.JWT_SECRET || 'dhs-jwt-secret-2026-change-in-production';
@@ -130,22 +137,23 @@ function verifyToken(token) {
 }
 
 function currentUser(req, db) {
-  // Support JWT Bearer token (new)
+  // JWT Bearer token (primary auth)
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Bearer ')) {
     const payload = verifyToken(auth.slice(7));
     if (payload?.userId) return db.users.find(u => u.id === payload.userId) || null;
   }
-  // Legacy x-user-id support (keep for backwards compat during transition)
-  const uid = (req.headers['x-user-id'] || '').trim();
-  if (uid) return db.users.find(u => u.id === uid) || null;
-  // API key auth
+  // API key auth (for ClipForge / external integrations)
   const apiKey = req.headers['x-api-key'] || '';
   if (apiKey) {
     const key = db.apiKeys?.find(k => k.key === apiKey);
     if (key) return db.users.find(u => u.id === key.userId) || null;
   }
   return null;
+}
+
+function geminiModel(db) {
+  return settingValue(db, 'GEMINI_MODEL') || process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 }
 
 function requireUser(req, db) {
@@ -361,13 +369,24 @@ async function runLipsyncMuapi(facePath, audioPath, outputPath, apiKey) {
 }
 
 async function runQA(db, videoPath, faceRefPath) {
+  // Basic file checks always run — no Python worker needed
+  if (!videoPath || !existsSync(videoPath)) {
+    return { valid: false, score: 0, issues: ['Output file missing'], note: 'File not found' };
+  }
+  const size = statSync(videoPath).size;
+  if (size < 50000) {
+    return { valid: false, score: 5, issues: [`Output file too small: ${size} bytes — likely blank or failed render`], note: 'File too small' };
+  }
+
   const script = join(WORKERS_DIR, 'qa_worker.py');
-  if (!existsSync(script)) return { valid: true, score: 80, issues: [], note: 'QA worker not installed' };
+  if (!existsSync(script)) {
+    return { valid: true, score: 70, issues: [], note: 'QA worker not installed — basic file checks passed' };
+  }
   try {
     const { stdout } = await run(PYTHON, [script, videoPath, faceRefPath || ''], { label: 'qa', timeoutMs: 120_000 });
     return JSON.parse(stdout.trim().split('\n').filter(l => l.startsWith('{')).pop() || '{}');
   } catch (e) {
-    return { valid: true, score: 75, issues: [e.message.slice(0, 100)], note: 'QA partial' };
+    return { valid: true, score: 65, issues: [e.message.slice(0, 100)], note: 'QA partial — worker errored' };
   }
 }
 
@@ -465,7 +484,7 @@ Topic/Prompt: ${prompt}
 Format: Spoken words only, natural pauses. No stage directions.`;
 
   try {
-    const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
+    const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel(db)}:generateContent?key=${geminiKey}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -800,7 +819,13 @@ async function handleAPI(req, res, pathname) {
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '').trim();
     const user = db.users.find(u => u.email === email);
-    if (!user || user.passwordHash !== hashPassword(password)) throw new Error('Invalid email or password.');
+    if (!user) throw new Error('Invalid email or password.');
+    // Migrate old SHA256 hash → PBKDF2 transparently
+    if (user.passwordHash === hashPasswordLegacy(password)) {
+      user.passwordHash = hashPassword(password);
+      saveDb(db);
+    }
+    if (user.passwordHash !== hashPassword(password)) throw new Error('Invalid email or password.');
     const token = signToken({ userId: user.id, role: user.role });
     return json(res, 200, { user: publicUser(user), token });
   }
@@ -863,13 +888,19 @@ async function handleAPI(req, res, pathname) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const buf = Buffer.concat(chunks);
-    const captureFile = join(sessionDir, 'capture.webm');
+    const uploadType = new URL(req.url, 'http://localhost').searchParams.get('type') || 'face';
+    const filename = uploadType === 'voice' ? 'voice.webm' : 'capture.webm';
+    const captureFile = join(sessionDir, filename);
     await fs.promises.writeFile(captureFile, buf);
-    session.captureFile = captureFile;
-    session.captureSize = buf.length;
+    if (uploadType === 'voice') {
+      session.voiceFile = captureFile;
+    } else {
+      session.captureFile = captureFile;
+    }
+    session.captureSize = (session.captureSize || 0) + buf.length;
     session.status = 'captured';
     saveDb(db);
-    return json(res, 200, { ok: true, sessionId, size: buf.length });
+    return json(res, 200, { ok: true, sessionId, type: uploadType, size: buf.length });
   }
 
   if (pathname === '/api/digital-humans/create-from-capture' && method === 'POST') {
@@ -881,14 +912,40 @@ async function handleAPI(req, res, pathname) {
     const sessions = db.captureSessions || [];
     const session = sessions.find(s => s.id === sessionId && s.userId === user.id);
     const captureFile = session?.captureFile || null;
+    const voiceFile = session?.voiceFile || null;
+
+    // Extract best face frame from captured video using FFmpeg
+    let faceImagePath = null;
+    if (captureFile && existsSync(captureFile)) {
+      const sessionDir = path.dirname(captureFile);
+      faceImagePath = join(sessionDir, 'face_frame.jpg');
+      try {
+        await run(FFMPEG, [
+          '-i', captureFile,
+          '-vf', 'select=eq(n\\,30)',
+          '-vframes', '1',
+          '-q:v', '2',
+          '-y', faceImagePath
+        ], { label: 'extract-face-frame', timeoutMs: 30000 });
+        if (!existsSync(faceImagePath) || statSync(faceImagePath).size < 1000) faceImagePath = null;
+      } catch (e) {
+        console.warn('Face frame extraction failed:', e.message);
+        faceImagePath = null;
+      }
+    }
+
+    // Use extracted frame as facePath; fall back to video if frame extraction failed
+    const resolvedFacePath = faceImagePath || (captureFile && existsSync(captureFile) ? captureFile : null);
+
     const dhId = randomUUID();
     const dh = {
       id: dhId, userId: user.id, name, type: 'self',
-      status: captureFile && existsSync(captureFile) ? 'ready' : 'draft',
+      status: resolvedFacePath ? 'ready' : 'draft',
       consentType: 'self', consentConfirmed: true,
       consentNote: 'Captured via camera wizard with biometric consent recording.',
-      facePath: captureFile && existsSync(captureFile) ? captureFile : null,
-      faceVideoPath: sessionId ? `/storage/captures/${sessionId}/capture.webm` : null,
+      facePath: resolvedFacePath,
+      faceVideoPath: captureFile ? `/storage/captures/${sessionId}/capture.webm` : null,
+      voicePath: voiceFile ? `/storage/captures/${sessionId}/voice.webm` : null,
       captureSessionId: sessionId,
       defaultVoice: 'en_US-amy-medium',
       personality: {}, preferredOutfits: [], preferredScenes: [],
@@ -930,7 +987,8 @@ async function handleAPI(req, res, pathname) {
     const dhId = randomUUID();
     const dh = {
       id: dhId, userId: user.id, name: dhName, type: 'fictional',
-      status: 'ready',
+      // needs_face = no face asset yet; upload a photo to make it ready
+      status: 'needs_face',
       consentType: 'synthetic', consentConfirmed: true,
       consentNote: 'Fictional AI-generated identity. No real person cloned.',
       consentVerified: true, consentAt: new Date().toISOString(),
@@ -1084,7 +1142,12 @@ async function handleAPI(req, res, pathname) {
     if (!body.digitalHumanId) throw new Error('digitalHumanId is required.');
     const dh = db.digitalHumans.find(h => h.id === body.digitalHumanId && (h.userId === user.id || user.role === 'admin'));
     if (!dh) throw Object.assign(new Error('Digital Human not found.'), { status: 404 });
-    if (!dh.facePath || !existsSync(dh.facePath)) throw new Error('Digital Human needs a face asset. Upload a photo or video first.');
+    if (!dh.facePath || !existsSync(dh.facePath)) {
+      const hint = dh.isFictional
+        ? 'This is a fictional human with no face asset. Upload a face photo on the Digital Human page first.'
+        : 'Digital Human needs a face asset. Upload a photo or video first.';
+      throw Object.assign(new Error(hint), { status: 400, code: 'NO_FACE_ASSET' });
+    }
 
     const mode = body.mode || 'talking_head';
     const cost = CREDIT_COSTS[mode] || CREDIT_COSTS.talking_head;
@@ -1328,17 +1391,18 @@ async function handleAPI(req, res, pathname) {
     const geminiKey = settingValue(db, 'GEMINI_API_KEY');
     if (!geminiKey) return json(res, 200, { ok: false, message: 'No Gemini API key configured. Add it in Settings.' });
     try {
-      const res2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
+      const model = geminiModel(db);
+      const res2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: 'Say hello in 5 words.' }] }], generationConfig: { maxOutputTokens: 50, temperature: 0.5 } }),
         signal: AbortSignal.timeout(15_000),
       });
-      if (res2.status === 429) return json(res, 200, { ok: false, message: 'Quota exceeded. Try again later.' });
+      if (res2.status === 429) return json(res, 200, { ok: false, message: 'Quota exceeded (429). Try again in a few minutes.' });
       if (!res2.ok) { const e = await res2.json(); return json(res, 200, { ok: false, message: e?.error?.message || `HTTP ${res2.status}` }); }
       const d = await res2.json();
       const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      return json(res, 200, { ok: true, model: 'gemini-2.5-flash-lite', message: text.trim() });
+      return json(res, 200, { ok: true, model, message: text.trim() });
     } catch(e) {
       return json(res, 200, { ok: false, message: e.message });
     }
@@ -1358,7 +1422,7 @@ async function handleAPI(req, res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('access-control-allow-origin', '*');
-  res.setHeader('access-control-allow-headers', 'content-type, x-user-id, x-api-key, authorization');
+  res.setHeader('access-control-allow-headers', 'content-type, x-api-key, authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   const rawUrl = req.url || '/';
