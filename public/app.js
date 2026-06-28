@@ -744,7 +744,10 @@ async function pageGenerate(el) {
     ];
 
     let selectedMode = 'talking_head';
-    let selectedDH = digitalHumans[0]?.id || '';
+    // Pre-select DH from state (set when navigating from view-human or DH card)
+    let selectedDH = state.selectedDH && digitalHumans.find(d => d.id === state.selectedDH)
+      ? state.selectedDH
+      : digitalHumans[0]?.id || '';
 
     function currentCost() { return MODES.find(m => m.id === selectedMode)?.cost || 5; }
 
@@ -780,11 +783,13 @@ async function pageGenerate(el) {
         <button class="btn btn-ghost btn-sm" data-page="create-human">+ New</button>
       </div>
       <div class="dh-picker-row mt-3">
-        ${digitalHumans.map(dh => `
-        <div class="dh-picker-card${selectedDH===dh.id?' selected':''}" data-dh="${dh.id}">
-          <div class="dh-picker-avatar">🧑</div>
+        ${digitalHumans.length === 0
+          ? `<div style="color:var(--text3);font-size:.85rem;padding:12px">No digital humans yet. <button class="btn btn-ghost btn-sm" data-page="create-twin">Create one →</button></div>`
+          : digitalHumans.map(dh => `
+        <div class="dh-picker-card${selectedDH===dh.id?' selected':''}${dh.status==='needs_face'?' dh-needs-face':''}" data-dh="${dh.id}" title="${dh.status==='needs_face'?'No face asset — upload a face photo':''}">
+          <div class="dh-picker-avatar">${dh.status==='needs_face'?'⚠️':'🧑'}</div>
           <div class="dh-picker-name">${escHtml(dh.name)}</div>
-          <div class="dh-picker-type">${dh.type}</div>
+          <div class="dh-picker-type" style="font-size:.68rem">${dh.status==='needs_face'?'Needs face':dh.type}</div>
         </div>`).join('')}
       </div>
     </div>
@@ -1295,24 +1300,36 @@ async function pageAdmin(el) {
 
 // ── View Digital Human ─────────────────────────────────────────────────────
 async function pageViewHuman(el) {
-  const id = state.selectedDH;
+  // Support direct navigation with params OR state.selectedDH
+  const id = state.params?.id || state.selectedDH;
   if (!id) { navigate('my-humans'); return; }
+  state.selectedDH = id; // keep in sync
   el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
   try {
     const { digitalHuman: dh } = await api(`/api/digital-humans/${id}`);
+    const statusMap = { ready:'green', needs_face:'yellow', taken_down:'red', draft:'yellow' };
+    // Choose correct preview — JPEG frame or fallback to emoji
+    const facePreview = dh.facePath && !dh.facePath.endsWith('.webm')
+      ? `<img src="${dh.facePath}" style="width:100%;height:200px;object-fit:cover;border-radius:var(--radius)">`
+      : dh.facePath && dh.facePath.endsWith('.webm')
+      ? `<video src="${dh.facePath}" style="width:100%;height:200px;object-fit:cover;border-radius:var(--radius)" muted playsinline autoplay loop></video>`
+      : `<div style="height:200px;border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:4rem">🧑</div>`;
+    const noFaceBanner = dh.status === 'needs_face'
+      ? `<div style="background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:8px;padding:10px 14px;font-size:.82rem;color:var(--yellow);margin-bottom:16px">⚠️ Upload a face photo below to enable video generation.</div>` : '';
     el.innerHTML = `
 <div class="flex items-center gap-3 mb-6">
   <button class="btn btn-ghost btn-sm" data-page="my-humans">← Back</button>
   <div class="section-title" style="margin:0">${escHtml(dh.name)}</div>
-  <span class="badge badge-${dh.status==='ready'?'green':dh.status==='taken_down'?'red':'yellow'}">${dh.status}</span>
+  <span class="badge badge-${statusMap[dh.status]||'yellow'}">${dh.status.replace('_',' ')}</span>
 </div>
+${noFaceBanner}
 <div class="grid-2 mb-4">
   <div class="card">
-    <div class="dh-avatar" style="height:200px;border-radius:var(--radius);margin-bottom:16px;font-size:4rem">${dh.faceVideoPath ? `<img src="${dh.faceVideoPath}">` : '🧑'}</div>
-    <div class="section-title mb-1">${escHtml(dh.name)}</div>
+    ${facePreview}
+    <div class="section-title mb-1" style="margin-top:16px">${escHtml(dh.name)}</div>
     <div style="color:var(--text3);font-size:.85rem;margin-bottom:16px">${dh.type} · ${dh.defaultVoice||'default voice'}</div>
     <div class="flex gap-2" style="flex-wrap:wrap">
-      <button class="btn btn-primary" data-page="generate">🎬 Generate Video</button>
+      <button class="btn btn-primary" id="gen-from-dh-btn">🎬 Generate Video</button>
       <button class="btn btn-danger btn-sm" id="del-dh-btn" data-id="${dh.id}">Delete</button>
     </div>
   </div>
@@ -1339,14 +1356,31 @@ async function pageViewHuman(el) {
   </div>
 </div>`;
 
+    // Generate video — pre-select this DH on generate page
+    document.getElementById('gen-from-dh-btn')?.addEventListener('click', () => {
+      if (dh.status === 'needs_face') {
+        toast('Upload a face photo first to enable video generation.', 'error');
+        return;
+      }
+      state.selectedDH = id;
+      navigate('generate');
+    });
+
+    // Face upload
     document.getElementById('face-drop')?.addEventListener('click', () => document.getElementById('face-file')?.click());
     document.getElementById('face-file')?.addEventListener('change', async e => {
       if (!e.target.files[0]) return;
       const st = document.getElementById('face-status');
       st.textContent = 'Uploading…';
-      try { await uploadFile(`/api/digital-humans/${id}/upload-face`, e.target.files[0]); st.textContent = '✅ Uploaded'; st.style.color = 'var(--green)'; }
+      try {
+        await uploadFile(`/api/digital-humans/${id}/upload-face`, e.target.files[0]);
+        st.textContent = '✅ Uploaded! Reloading…'; st.style.color = 'var(--green)';
+        setTimeout(() => pageViewHuman(el), 800); // reload page to show new face
+      }
       catch(err) { st.textContent = '❌ ' + err.message; st.style.color = 'var(--red)'; }
     });
+
+    // Voice upload
     document.getElementById('voice-drop')?.addEventListener('click', () => document.getElementById('voice-file')?.click());
     document.getElementById('voice-file')?.addEventListener('change', async e => {
       if (!e.target.files[0]) return;
@@ -1355,6 +1389,8 @@ async function pageViewHuman(el) {
       try { await uploadFile(`/api/digital-humans/${id}/upload-voice`, e.target.files[0]); st.textContent = '✅ Uploaded'; st.style.color = 'var(--green)'; }
       catch(err) { st.textContent = '❌ ' + err.message; st.style.color = 'var(--red)'; }
     });
+
+    // Delete
     document.getElementById('del-dh-btn')?.addEventListener('click', async () => {
       if (!confirm(`Delete "${dh.name}"? This cannot be undone.`)) return;
       try { await api(`/api/digital-humans/${id}`, { method: 'DELETE' }); toast('Deleted.', 'success'); navigate('my-humans'); }
@@ -1596,8 +1632,18 @@ function pageCreateTwin(el) {
     if (fn) fn(container);
   }
 
-  function nextStep() { stopStream(); currentStep++; draw(); }
-  function prevStep() { stopStream(); currentStep = Math.max(1, currentStep - 1); draw(); }
+  function nextStep() {
+    // DO NOT stop stream here — camera must stay alive across capture steps 2-6
+    if (stepTimer) { clearTimeout(stepTimer); stepTimer = null; }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { mediaRecorder.stop(); } catch {} }
+    currentStep++;
+    draw();
+  }
+  function prevStep() {
+    if (stepTimer) { clearTimeout(stepTimer); stepTimer = null; }
+    currentStep = Math.max(1, currentStep - 1);
+    draw();
+  }
 
   function drawStep1(c) {
     c.innerHTML = `
@@ -2031,13 +2077,21 @@ function pageCreateFictional(el) {
         }),
       });
       const dh = res.digitalHuman;
+      state.selectedDH = dh.id;
       statusEl.innerHTML = `
 <div class="card" style="border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.06);margin-top:16px">
-  <div style="font-size:2rem;margin-bottom:8px">🎉</div>
-  <div class="font-bold mb-2" style="font-size:1.1rem">${escHtml(dh.name)} created!</div>
-  <div class="text-muted text-sm mb-4">Type: Fictional AI &middot; Voice: ${escHtml(dh.defaultVoice||'')}</div>
-  <button class="btn btn-primary" data-page="generate">Generate Video with This Human →</button>
+  <div style="font-size:2rem;margin-bottom:8px">✅</div>
+  <div class="font-bold mb-2" style="font-size:1.1rem">${escHtml(dh.name)} profile created!</div>
+  <div class="text-muted text-sm mb-3">Fictional AI · Voice: ${escHtml(dh.defaultVoice||'')} </div>
+  <div style="background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:8px;padding:10px 14px;font-size:.82rem;color:var(--yellow);margin-bottom:16px">
+    ⚠️ Next step: Upload a face photo to enable video generation.
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-primary" id="fic-upload-face-btn">📸 Upload Face Photo →</button>
+    <button class="btn btn-ghost btn-sm" data-page="my-humans">View All Humans</button>
+  </div>
 </div>`;
+      document.getElementById('fic-upload-face-btn')?.addEventListener('click', () => navigate('view-human'));
       btn.style.display = 'none';
     } catch(e) {
       toast(e.message, 'error');
@@ -2098,7 +2152,14 @@ async function pageSettings(el) {
     <div class="settings-label">Gemini AI Key</div>
     <div class="settings-input">
       <input type="password" id="set-gemini" value="${escHtml(get('GEMINI_API_KEY'))}" placeholder="AIza...">
-      <div class="settings-hint">Get your free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> · Model: gemini-2.5-flash-lite</div>
+      <div class="settings-hint">Get your free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
+    </div>
+  </div>
+  <div class="settings-row">
+    <div class="settings-label">Gemini Model</div>
+    <div class="settings-input">
+      <input type="text" id="set-gemini-model" value="${escHtml(get('GEMINI_MODEL')||'gemini-2.5-flash-lite')}" placeholder="gemini-2.5-flash-lite">
+      <div class="settings-hint">Default: gemini-2.5-flash-lite</div>
     </div>
   </div>
   <div class="settings-row">
@@ -2160,8 +2221,10 @@ async function pageSettings(el) {
           { key: 'TTS_PROVIDER', value: document.getElementById('set-tts')?.value },
           { key: 'LIPSYNC_PROVIDER', value: document.getElementById('set-lipsync')?.value },
           { key: 'GEMINI_API_KEY', value: document.getElementById('set-gemini')?.value },
+          { key: 'GEMINI_MODEL', value: document.getElementById('set-gemini-model')?.value || 'gemini-2.5-flash-lite' },
           { key: 'VOICE_API_KEY', value: document.getElementById('set-elevenlabs')?.value },
           { key: 'WAV2LIP_PATH', value: document.getElementById('set-wav2lip')?.value },
+          { key: 'FFMPEG_PATH', value: document.getElementById('set-ffmpeg')?.value || 'ffmpeg' },
         ];
         await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: settingsList }) });
         status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
