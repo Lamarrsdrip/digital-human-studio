@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ─── Config ──────────────────────────────────────────────────────────────────
 const PORT           = Number(process.env.PORT || 4200);
 const FFMPEG         = process.env.FFMPEG_PATH || 'ffmpeg';
-const PYTHON         = process.env.PYTHON_PATH || 'python3.9';
+const PYTHON         = process.env.PYTHON_PATH || 'python3';
 const STORAGE_DIR    = join(__dirname, 'storage');
 const DATA_FILE      = join(__dirname, 'data', 'db.json');
 const WORKERS_DIR    = join(__dirname, 'workers');
@@ -175,13 +175,13 @@ function publicUser(u) {
 
 // ─── Process runner ───────────────────────────────────────────────────────────
 
-function run(cmd, args, { timeoutMs = 300_000, label = cmd, jobId = '' } = {}) {
+function run(cmd, args, { timeoutMs = 300_000, label = cmd, jobId = '', stdin = null } = {}) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     console.log(`[run:start] ${label}`, { cmd, args: args.join(' ').slice(0, 200) });
-    // Inject user site-packages so Python workers can find pip-installed packages
     const env = { ...process.env, PYTHONPATH: '/Users/libertyelectronics/Library/Python/3.9/lib/python/site-packages' };
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const child = spawn(cmd, args, { stdio: [stdin != null ? 'pipe' : 'ignore', 'pipe', 'pipe'], env });
+    if (stdin != null && child.stdin) { child.stdin.write(stdin); child.stdin.end(); }
     let stdout = '', stderr = '';
     const MAX = 2 * 1024 * 1024;
     let settled = false;
@@ -196,7 +196,13 @@ function run(cmd, args, { timeoutMs = 300_000, label = cmd, jobId = '' } = {}) {
     child.on('close', code => {
       console.log(`[run:exit] ${label}`, { code, ms: Date.now() - startedAt });
       if (code === 0) finish(resolve, { stdout, stderr, code });
-      else finish(reject, new Error((stderr || stdout || `${label} exited ${code}`).slice(-600)));
+      // Strip ANSI/control chars so error messages are safe to store in JSON
+      else {
+        const raw = (stderr || stdout || `${label} exited ${code}`).slice(-600);
+        // eslint-disable-next-line no-control-regex
+        const clean = raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|(\x1b\[[0-9;]*[mGKHFABCDJsur])/g, '');
+        finish(reject, new Error(clean));
+      }
     });
   });
 }
@@ -265,8 +271,9 @@ async function runTTS(db, text, outputWav, { voiceId, speed = 1.0, jobId = '' } 
     const modelFile = join(modelDir, `${voice}.onnx`);
     if (existsSync(piperExe) || piperExe === 'piper') {
       try {
+        // Piper reads text from stdin and writes WAV to --output_file
         await run(piperExe, ['--model', modelFile, '--output_file', outputWav],
-          { label: 'piper-tts', timeoutMs: 60_000 });
+          { label: 'piper-tts', timeoutMs: 60_000, stdin: text });
         return outputWav;
       } catch (e) {
         console.warn('[tts:piper-failed]', e.message, '— falling back to system TTS');
@@ -275,8 +282,12 @@ async function runTTS(db, text, outputWav, { voiceId, speed = 1.0, jobId = '' } 
   }
 
   // System TTS fallback (macOS `say` command)
+  // Note: --data-format flag is broken on macOS 15+ — omit it and let say use default AIFF
   const aiffPath = outputWav.replace('.wav', '.aiff');
-  await run('say', ['-o', aiffPath, '--data-format=LEF32@22050', text], { label: 'say-tts', timeoutMs: 60_000 });
+  await run('say', ['-o', aiffPath, text], { label: 'say-tts', timeoutMs: 60_000 });
+  if (!existsSync(aiffPath) || statSync(aiffPath).size < 100) {
+    throw new Error('System TTS (say) failed to produce audio. Check that your Mac has TTS voices installed.');
+  }
   await run(FFMPEG, ['-y', '-i', aiffPath, '-ar', '16000', '-ac', '1', outputWav], { label: 'aiff-to-wav', timeoutMs: 30_000 });
   try { fs.unlinkSync(aiffPath); } catch {}
   return outputWav;
@@ -302,9 +313,13 @@ async function runLipsync(db, facePath, audioPath, outputPath, { jobId = '' } = 
   if (provider === 'wav2lip' || provider === 'local') {
     const script = join(WORKERS_DIR, 'lipsync_worker.py');
     if (existsSync(script)) {
-      await run(PYTHON, [script, '--provider', 'wav2lip', '--face', facePath, '--audio', audioPath, '--output', outputPath],
-        { label: 'wav2lip', timeoutMs: 600_000, jobId });
-      if (existsSync(outputPath) && statSync(outputPath).size > 1024) return outputPath;
+      try {
+        await run(PYTHON, [script, '--provider', 'wav2lip', '--face', facePath, '--audio', audioPath, '--output', outputPath],
+          { label: 'wav2lip', timeoutMs: 600_000, jobId });
+        if (existsSync(outputPath) && statSync(outputPath).size > 1024) return outputPath;
+      } catch (e) {
+        console.warn('[lipsync:wav2lip-failed]', e.message.slice(0, 100), '— falling back to static video');
+      }
     }
   }
 
@@ -312,14 +327,18 @@ async function runLipsync(db, facePath, audioPath, outputPath, { jobId = '' } = 
   if (provider === 'sadtalker') {
     const script = join(WORKERS_DIR, 'lipsync_worker.py');
     if (existsSync(script)) {
-      await run(PYTHON, [script, '--provider', 'sadtalker', '--face', facePath, '--audio', audioPath, '--output', outputPath],
-        { label: 'sadtalker', timeoutMs: 1200_000, jobId });
-      if (existsSync(outputPath) && statSync(outputPath).size > 1024) return outputPath;
+      try {
+        await run(PYTHON, [script, '--provider', 'sadtalker', '--face', facePath, '--audio', audioPath, '--output', outputPath],
+          { label: 'sadtalker', timeoutMs: 1200_000, jobId });
+        if (existsSync(outputPath) && statSync(outputPath).size > 1024) return outputPath;
+      } catch (e) {
+        console.warn('[lipsync:sadtalker-failed]', e.message.slice(0, 100), '— falling back to static video');
+      }
     }
   }
 
-  // Simple FFmpeg fallback — static image + audio (no lip sync, but produces valid video)
-  console.warn('[lipsync:fallback] no local model available — using static image + audio');
+  // Static FFmpeg fallback — static image + audio (produces a real video, just no lip movement)
+  console.warn('[lipsync:fallback] no lip sync model available — using static image + audio');
   await staticImageVideo(facePath, audioPath, outputPath);
   return outputPath;
 }
@@ -452,19 +471,40 @@ function assTime(s) {
 
 async function renderFinalVideo(lipsyncPath, audioPath, assPath, outputPath, { W = 1080, H = 1920, fps = 30 } = {}) {
   const hasASS = existsSync(assPath);
-  const capF   = hasASS ? `,ass='${assPath}'` : '';
+  const tmpOut = outputPath.replace('.mp4', '_nocap.mp4');
+
+  // Pass 1: scale + audio normalization (no captions — avoids path escaping issues in filter_complex)
   await run(FFMPEG, [
     '-y', '-i', lipsyncPath, '-i', audioPath,
     '-filter_complex',
-    `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black${capF}[vout];` +
-    `[1:a]acompressor=threshold=0.089:ratio=4:attack=5:release=50,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`,
+    `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black[vout];` +
+    `[1:a]loudnorm=I=-14:TP=-1.5:LRA=11[aout]`,
     '-map', '[vout]', '-map', '[aout]',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
     '-maxrate', '6000k', '-bufsize', '12000k',
     '-r', String(fps), '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
-    '-movflags', '+faststart', outputPath,
+    '-movflags', '+faststart', tmpOut,
   ], { label: 'final-render', timeoutMs: 300_000 });
+
+  // Pass 2: burn captions (separate pass avoids path-in-filterchain issues)
+  if (hasASS) {
+    try {
+      await run(FFMPEG, [
+        '-y', '-i', tmpOut,
+        '-vf', `ass=${assPath}`,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-pix_fmt', 'yuv420p',
+        '-c:a', 'copy', '-movflags', '+faststart', outputPath,
+      ], { label: 'burn-captions', timeoutMs: 180_000 });
+      try { fs.unlinkSync(tmpOut); } catch {}
+    } catch (e) {
+      // Caption burn failed — use no-caption version as final output
+      console.warn('[captions:failed]', e.message.slice(0, 100));
+      fs.renameSync(tmpOut, outputPath);
+    }
+  } else {
+    fs.renameSync(tmpOut, outputPath);
+  }
 }
 
 // ─── Script writing AI ────────────────────────────────────────────────────────
@@ -554,8 +594,14 @@ async function processVideoJob(jobId) {
     updateJob(jobId, { stage: 'lip sync', progress: 40 });
     const facePath = dh.facePath && existsSync(dh.facePath) ? dh.facePath : null;
     if (!facePath) throw new Error('Digital Human has no face asset. Please upload a face photo or video first.');
+    const lipsyncProvider = settingValue(db, 'LIPSYNC_PROVIDER') || 'wav2lip';
+    const lipsyncWorkerExists = existsSync(join(WORKERS_DIR, 'lipsync_worker.py'));
     await runLipsync(db, facePath, wavPath, lipsyncOut, { jobId });
     if (!existsSync(lipsyncOut) || statSync(lipsyncOut).size < 1024) throw new Error('Lip sync produced no output.');
+    // If we had to use static fallback, record a warning on the job
+    if (!lipsyncWorkerExists || lipsyncProvider === 'static') {
+      updateJob(jobId, { warning: 'Lip sync model not installed — video uses static face image with audio. Install Wav2Lip for real mouth movement.' });
+    }
 
     // Step 4: Captions
     updateJob(jobId, { stage: 'captions', progress: 65 });
@@ -610,7 +656,8 @@ async function processVideoJob(jobId) {
     saveDb(db2);
 
   } catch (error) {
-    const msg = String(error.message || error).slice(0, 500);
+    // eslint-disable-next-line no-control-regex
+    const msg = String(error.message || error).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').slice(0, 500);
     console.error('[job:failed]', { jobId, error: msg });
     updateJob(jobId, { status: 'failed', stage: 'failed', progress: 100, error: msg });
   } finally {
@@ -710,9 +757,23 @@ async function getWorkerHealth(db) {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
+function sanitizeForJson(obj) {
+  if (typeof obj === 'string') {
+    // eslint-disable-next-line no-control-regex
+    return obj.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  }
+  if (Array.isArray(obj)) return obj.map(sanitizeForJson);
+  if (obj && typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitizeForJson(v);
+    return out;
+  }
+  return obj;
+}
+
 function json(res, status, data) {
   res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-  res.end(JSON.stringify(data));
+  res.end(JSON.stringify(sanitizeForJson(data)));
 }
 
 function readJson(req) {
@@ -765,10 +826,17 @@ function streamUpload(req, destDir, { maxSizeMb = 200, allowedExts = [] } = {}) 
     const fields = {};
     let upload = null;
     let done = false;
+    let busboyDone = false;
+    let writesDone = true; // true until a file write starts
+    const tryResolve = () => {
+      if (!done && busboyDone && writesDone) { done = true; resolve({ fields, upload }); }
+    };
     const fail = e => { if (!done) { done = true; reject(e); } };
 
     bb.on('field', (k, v) => { fields[k] = v; });
-    bb.on('file', (fieldname, stream, { filename }) => {
+    bb.on('file', (fieldname, stream, info) => {
+      // busboy v1+ passes info object; v0 passes (fieldname, stream, filename, enc, mime)
+      const filename = typeof info === 'string' ? info : (info?.filename || fieldname);
       const safeExt = path.extname(filename).toLowerCase();
       if (allowedExts.length && !allowedExts.includes(safeExt)) {
         stream.resume();
@@ -778,12 +846,17 @@ function streamUpload(req, destDir, { maxSizeMb = 200, allowedExts = [] } = {}) 
       const outPath = join(destDir, outName);
       mkdirSync(destDir, { recursive: true });
       const ws = fs.createWriteStream(outPath);
+      writesDone = false; // a write is in progress
       stream.pipe(ws);
-      stream.on('limit', () => { ws.close(); try { fs.unlinkSync(outPath); } catch {} fail(new Error(`File exceeds ${maxSizeMb}MB limit.`)); });
-      ws.on('finish', () => { upload = { path: outPath, name: outName, originalName: filename, ext: safeExt }; });
+      stream.on('limit', () => { ws.destroy(); try { fs.unlinkSync(outPath); } catch {} fail(new Error(`File exceeds ${maxSizeMb}MB limit.`)); });
+      ws.on('finish', () => {
+        upload = { path: outPath, name: outName, originalName: filename, ext: safeExt };
+        writesDone = true;
+        tryResolve(); // resolve here if busboy already finished
+      });
       ws.on('error', fail);
     });
-    bb.on('finish', () => { if (!done) { done = true; resolve({ fields, upload }); } });
+    bb.on('finish', () => { busboyDone = true; tryResolve(); }); // resolve here if write already finished
     bb.on('error', fail);
     req.pipe(bb);
   });
