@@ -1,5 +1,9 @@
 // Digital Human Studio — Frontend
 
+function escHtml(str) {
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   user: null,
