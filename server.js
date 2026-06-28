@@ -12,6 +12,11 @@ import { spawn } from 'child_process';
 import { createHash, createHmac, randomBytes, randomUUID, pbkdf2Sync } from 'crypto';
 import Busboy from 'busboy';
 
+// Modular provider layer
+import { generateVideo as _generateWithProvider, testProviderConnection, getProviderManifest, PROVIDERS as VIDEO_PROVIDERS } from './providers/video/index.js';
+import { generateFaceImage, getImageProviderManifest } from './providers/image/index.js';
+import { extractIdentityPack as _extractIdentityPack } from './services/identityPack.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -130,8 +135,12 @@ function defaultDb() {
       { key: 'IMAGE_GEN_PROVIDER', value: 'none' },        // none|dalle|stability|replicate|fal
       { key: 'IMAGE_GEN_API_KEY',  value: '' },
       { key: 'FFMPEG_PATH',        value: 'ffmpeg' },
-      { key: 'VEO_API_KEY',        value: '' },            // Google Veo / Gemini Video
-      { key: 'SEEDANCE_API_KEY',   value: '' },            // Seedance video provider
+      { key: 'VEO_API_KEY',        value: '' },            // Google Veo OAuth2 token
+      { key: 'LUMA_API_KEY',       value: '' },            // Luma Dream Machine (separate key)
+      { key: 'MUAPI_API_KEY',      value: '' },            // Muapi cloud lipsync
+      { key: 'GOOGLE_PROJECT_ID',  value: '' },            // GCP project for Veo
+      { key: 'GOOGLE_REGION',      value: 'us-central1' }, // GCP region for Veo
+      { key: 'SERVER_PUBLIC_URL',  value: '' },            // Cloudflare tunnel URL (for Luma image-to-video)
     ],
     creditTransactions: [],
   };
@@ -341,50 +350,9 @@ async function runFacePrep(db, inputPath, outputDir) {
   return JSON.parse(stdout.trim().split('\n').filter(l => l.startsWith('{')).pop() || '{}');
 }
 
-/**
- * Identity Pack extraction — the ONLY purpose of capture footage.
- * Extracts multiple reference frames from the captured video to build a
- * reusable identity that can be passed to AI providers for NEW scene generation.
- *
- * The captured video is NEVER used as the final video output. It is training/reference data only.
- */
+// extractIdentityPack delegates to services/identityPack.js for proper multi-frame extraction
 async function extractIdentityPack(captureVideoPath, outputDir) {
-  mkdirSync(outputDir, { recursive: true });
-  const frames = [];
-  const voiceSample = null;
-
-  // Probe video duration
-  let duration = 10;
-  try {
-    const probe = await run('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', captureVideoPath], { label: 'probe-identity', timeoutMs: 10000 });
-    duration = Number(JSON.parse(probe.stdout || '{}').format?.duration || 10);
-  } catch {}
-
-  // Extract frames at key timestamps — spread across the video
-  const targetTimestamps = [0.5, 1.0, 2.0, Math.floor(duration * 0.25), Math.floor(duration * 0.5)].filter(t => t < duration);
-  for (const ts of targetTimestamps) {
-    const framePath = join(outputDir, `ref_${Math.round(ts * 100)}.jpg`);
-    try {
-      await run(FFMPEG, ['-y', '-ss', String(ts), '-i', captureVideoPath, '-frames:v', '1', '-q:v', '2', framePath],
-        { label: `extract-ref-${ts}`, timeoutMs: 15_000 });
-      if (existsSync(framePath) && statSync(framePath).size > 5000) frames.push(framePath);
-    } catch {}
-  }
-
-  // Quality scoring
-  const qualityScore = frames.length >= 4 ? 85 : frames.length >= 2 ? 65 : frames.length >= 1 ? 40 : 0;
-
-  return {
-    faceFrames: frames,
-    primaryFaceFrame: frames[1] || frames[0] || null, // prefer 1s (settled, not blinking)
-    qualityScore,
-    framesExtracted: frames.length,
-    voiceSample,
-    extractedAt: new Date().toISOString(),
-    note: frames.length > 0
-      ? `Identity pack created from ${frames.length} reference frames. Use Generate Video to create new scenes.`
-      : 'No frames extracted — upload a face photo manually.',
-  };
+  return _extractIdentityPack(captureVideoPath, outputDir);
 }
 
 async function runLipsync(db, facePath, audioPath, outputPath, { jobId = '' } = {}) {
@@ -811,39 +779,32 @@ function buildScenePrompt(plan, dh) {
 async function generateVideoWithProvider(db, { plan, facePath, identityPack, audioPath, outputPath, jobId = '', dh = null }) {
   const provider = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
   const apiKey = settingValue(db, 'VIDEO_GEN_API_KEY');
-  // Use best identity reference frame — prefer identity pack over raw facePath
+  const veoKey = settingValue(db, 'VEO_API_KEY');
+  const resolvedKey = (provider === 'veo' && veoKey) ? veoKey : apiKey;
+
+  // Best identity reference frame — prefer identity pack primary frame
   const bestFaceRef = identityPack?.primaryFaceFrame && existsSync(identityPack.primaryFaceFrame)
     ? identityPack.primaryFaceFrame
     : (facePath && existsSync(facePath) ? facePath : null);
   const scenePrompt = buildScenePrompt(plan, dh);
 
-  // Level 4/3: Cloud scene providers
-  if (provider === 'runway' && apiKey) {
-    return await generateVideoRunway(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
-  }
-  if (provider === 'kling' && apiKey) {
-    return await generateVideoKling(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
-  }
-  if (provider === 'veo' && (apiKey || settingValue(db, 'VEO_API_KEY'))) {
-    return await generateVideoVeo(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey: apiKey || settingValue(db, 'VEO_API_KEY'), scenePrompt });
-  }
-  if (provider === 'seedance' && (apiKey || settingValue(db, 'SEEDANCE_API_KEY'))) {
-    return await generateVideoSeedance(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey: apiKey || settingValue(db, 'SEEDANCE_API_KEY'), scenePrompt });
-  }
-  if (provider === 'pika' && apiKey) {
-    return await generateVideoPika(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
-  }
-  if (provider === 'luma' && apiKey) {
-    return await generateVideoLuma(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
-  }
-  if (provider === 'hailuo' && apiKey) {
-    return await generateVideoHailuo(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
-  }
-  if (provider === 'replicate' && apiKey) {
-    return await generateVideoReplicate(db, { plan, facePath: bestFaceRef, audioPath, outputPath, jobId, apiKey, scenePrompt });
+  // Cloud scene providers (Level 3–4) — delegate to providers/video/index.js (verified APIs only)
+  const CLOUD_PROVIDERS = ['runway', 'kling', 'luma', 'hailuo', 'replicate', 'pika', 'veo', 'seedance'];
+  if (CLOUD_PROVIDERS.includes(provider) && resolvedKey) {
+    const result = await _generateWithProvider(provider, {
+      apiKey: resolvedKey,
+      imagePath: bestFaceRef,
+      prompt: scenePrompt,
+      aspectRatio: '9:16',
+      durationSec: Math.min(10, plan.shots?.[0]?.duration || 8),
+      outputPath,
+      projectId: settingValue(db, 'GOOGLE_PROJECT_ID'),
+      region: settingValue(db, 'GOOGLE_REGION') || 'us-central1',
+    });
+    return result;
   }
 
-  // Level 1: Local lip sync (talking head — identity preserved, face reference is reference image NOT capture video)
+  // Level 1: Local lip sync (talking head)
   if (bestFaceRef) {
     const lipsyncWorker = existsSync(join(WORKERS_DIR, 'lipsync_worker.py'));
     if (lipsyncWorker) {
@@ -858,7 +819,7 @@ async function generateVideoWithProvider(db, { plan, facePath, identityPack, aud
     }
   }
 
-  // Level 0: Static test fallback — ONLY acceptable when no scene/action was requested
+  // Level 0: Static test fallback — clearly labeled, never called AI video
   if (bestFaceRef) {
     await staticImageVideo(bestFaceRef, audioPath, outputPath);
     return {
@@ -866,381 +827,31 @@ async function generateVideoWithProvider(db, { plan, facePath, identityPack, aud
       label: 'Static Test (Level 0)',
       provider: 'ffmpeg_static',
       warning: true,
-      warningText: 'This is a static image + audio overlay — NOT AI video. Configure Runway, Kling, Pika, Luma, Veo, or Hailuo in Settings for real AI scene generation.',
+      warningText: 'Static image + audio overlay only — NOT AI video. Configure Runway, Kling, Luma, Hailuo, or Replicate in Settings for real scene generation.',
     };
   }
 
-  throw new Error('No identity pack / face reference found, and no cloud video provider configured. Cannot generate video.\n\nFor AI Twin: complete the camera capture wizard.\nFor Synthetic/Fictional: configure an image provider in Settings (DALL-E, Stability, FAL) or upload a face photo.\nFor scene video: configure a cloud video provider (Runway, Kling, Pika, Luma, Veo, Hailuo).');
+  throw new Error(
+    'No face reference and no cloud video provider configured.\n\n' +
+    'AI Twin: complete the camera capture wizard.\n' +
+    'Synthetic Human: configure an image provider in Settings (DALL-E, Stability, FAL, Replicate).\n' +
+    'Scene video: configure Runway, Kling, Luma, Hailuo, or Replicate in Settings.'
+  );
 }
 
-async function generateVideoRunway(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Runway Gen-3/Gen-4 — identity reference image → new scene generation
-  // The face reference is the IDENTITY, not the source footage. Runway generates a NEW scene.
-  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
-  const mimeType = facePath && facePath.match(/\.png$/i) ? 'image/png' : 'image/jpeg';
-  const prompt = scenePrompt || plan.sceneDescription || plan.motionDirection || 'Person speaking naturally in cinematic style';
-
-  const body = imageBase64 ? {
-    model: 'gen3a_turbo',
-    promptImage: `data:${mimeType};base64,${imageBase64}`,
-    promptText: prompt,
-    duration: Math.min(10, plan.shots?.[0]?.duration || 8),
-    ratio: '720:1280',
-  } : {
-    model: 'gen3a_turbo',
-    promptText: prompt,
-    duration: Math.min(10, plan.shots?.[0]?.duration || 8),
-    ratio: '720:1280',
-  };
-
-  const taskRes = await fetch('https://api.dev.runwayml.com/v1/image_to_video', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  if (!task.id) throw new Error(`Runway task creation failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  // Poll for completion (up to 5 min)
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.dev.runwayml.com/v1/tasks/${task.id}`, {
-      headers: { Authorization: `Bearer ${apiKey}`, 'X-Runway-Version': '2024-11-06' },
-    });
-    const t = await poll.json();
-    if (t.status === 'SUCCEEDED' && t.output?.[0]) {
-      const vid = await fetch(t.output[0]);
-      const buf = Buffer.from(await vid.arrayBuffer());
-      fs.writeFileSync(outputPath, buf);
-      return { level: 4, label: 'Full Scene Video', provider: 'runway' };
-    }
-    if (t.status === 'FAILED') throw new Error(`Runway generation failed: ${t.failure || 'unknown'}`);
-  }
-  throw new Error('Runway task timed out after 5 minutes');
-}
-
-async function generateVideoKling(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Kling AI — identity reference image → new scene. Face is reference for identity preservation.
-  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
-  const prompt = scenePrompt || plan.sceneDescription || plan.motionDirection || 'Person speaking in cinematic scene';
-
-  const body = {
-    model_name: 'kling-v1',
-    prompt,
-    ...(imageBase64 ? { image: imageBase64 } : {}),
-    duration: '5',
-    aspect_ratio: '9:16',
-  };
-
-  const taskRes = await fetch('https://api.klingai.com/v1/videos/image2video', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.data?.task_id;
-  if (!taskId) throw new Error(`Kling task creation failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.klingai.com/v1/videos/image2video/${taskId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const t = await poll.json();
-    const status = t.data?.task_status;
-    if (status === 'succeed') {
-      const url = t.data?.task_result?.videos?.[0]?.url;
-      if (url) {
-        const vid = await fetch(url);
-        fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-        return { level: 4, label: 'Full Scene Video', provider: 'kling' };
-      }
-    }
-    if (status === 'failed') throw new Error(`Kling generation failed: ${t.data?.task_status_msg || 'unknown'}`);
-  }
-  throw new Error('Kling task timed out');
-}
-
-async function generateVideoPika(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Pika Labs — identity reference image → new cinematic scene
-  const prompt = scenePrompt || plan.sceneDescription || plan.motionDirection || 'Person speaking naturally';
-  const body = {
-    promptText: prompt,
-    ...(facePath && existsSync(facePath) ? { image: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}` } : {}),
-    options: { aspectRatio: '9:16', frameRate: 24, duration: Math.min(10, Math.ceil((plan.shots?.[0]?.duration || 6))) },
-  };
-
-  const taskRes = await fetch('https://api.pika.art/v2/generate', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.id;
-  if (!taskId) throw new Error(`Pika task failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.pika.art/v2/generations/${taskId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const t = await poll.json();
-    if (t.status === 'completed' && t.video?.url) {
-      const vid = await fetch(t.video.url);
-      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-      return { level: 4, label: 'Full Scene Video', provider: 'pika' };
-    }
-    if (t.status === 'failed') throw new Error(`Pika failed: ${t.error || 'unknown'}`);
-  }
-  throw new Error('Pika task timed out');
-}
-
-async function generateVideoLuma(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Luma Dream Machine — identity reference image → new scene
-  const prompt = scenePrompt || plan.sceneDescription || 'Person speaking on camera';
-  const body = {
-    prompt,
-    aspect_ratio: '9:16',
-    ...(facePath && existsSync(facePath) ? {
-      keyframes: { frame0: { type: 'image', url: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}` } }
-    } : {}),
-  };
-
-  const taskRes = await fetch('https://api.lumalabs.ai/dream-machine/v1/generations', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.id;
-  if (!taskId) throw new Error(`Luma task failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.lumalabs.ai/dream-machine/v1/generations/${taskId}`, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-    });
-    const t = await poll.json();
-    if (t.state === 'completed' && t.assets?.video) {
-      const vid = await fetch(t.assets.video);
-      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-      return { level: 4, label: 'Full Scene Video', provider: 'luma' };
-    }
-    if (t.state === 'failed') throw new Error(`Luma failed: ${t.failure_reason || 'unknown'}`);
-  }
-  throw new Error('Luma task timed out');
-}
-
-async function generateVideoHailuo(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Hailuo AI / MiniMax video-01 — identity reference → new scene
-  const prompt = scenePrompt || plan.sceneDescription || 'Person speaking';
-  const body = {
-    model: 'video-01',
-    prompt,
-    ...(facePath && existsSync(facePath) ? {
-      first_frame_image: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}`,
-    } : {}),
-  };
-
-  const taskRes = await fetch('https://api.minimax.io/v1/video_generation', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.task_id;
-  if (!taskId) throw new Error(`Hailuo task failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.minimax.io/v1/query/video_generation?task_id=${taskId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const t = await poll.json();
-    if (t.status === 'Success' && t.file_id) {
-      const dl = await fetch(`https://api.minimax.io/v1/files/retrieve?file_id=${t.file_id}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-      const info = await dl.json();
-      if (info.file?.download_url) {
-        const vid = await fetch(info.file.download_url);
-        fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-        return { level: 4, label: 'Full Scene Video', provider: 'hailuo' };
-      }
-    }
-    if (t.status === 'Fail') throw new Error(`Hailuo failed: ${t.message || 'unknown'}`);
-  }
-  throw new Error('Hailuo task timed out');
-}
-
-async function generateVideoReplicate(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Replicate — identity reference image → new scene via minimax/video-01 or any i2v model
-  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
-  const prompt = scenePrompt || plan.sceneDescription || plan.motionDirection || 'Person speaking in cinematic scene';
-  const body = {
-    version: 'minimax/video-01',
-    input: {
-      prompt,
-      ...(imageBase64 ? { first_frame_image: `data:image/jpeg;base64,${imageBase64}` } : {}),
-    },
-  };
-
-  const taskRes = await fetch('https://api.replicate.com/v1/predictions', {
-    method: 'POST',
-    headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.id;
-  if (!taskId) throw new Error(`Replicate task failed: ${JSON.stringify(task).slice(0, 200)}`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.replicate.com/v1/predictions/${taskId}`, {
-      headers: { Authorization: `Token ${apiKey}` },
-    });
-    const t = await poll.json();
-    if (t.status === 'succeeded' && t.output) {
-      const url = Array.isArray(t.output) ? t.output[0] : t.output;
-      const vid = await fetch(url);
-      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-      return { level: 4, label: 'Full Scene Video', provider: 'replicate' };
-    }
-    if (t.status === 'failed') throw new Error(`Replicate failed: ${t.error || 'unknown'}`);
-  }
-  throw new Error('Replicate task timed out');
-}
-
-// Generate a face image for a synthetic human using image gen provider
+// generateSyntheticFace delegates to providers/image/index.js
 async function generateSyntheticFace(db, { appearance, gender, ageRange, style }) {
   const provider = settingValue(db, 'IMAGE_GEN_PROVIDER') || 'none';
   const apiKey = settingValue(db, 'IMAGE_GEN_API_KEY');
-
   if (provider === 'none' || !apiKey) return null;
-
-  const prompt = `Portrait photo, professional headshot. ${appearance}. ${gender ? `Gender: ${gender}.` : ''} ${ageRange ? `Age: ${ageRange}.` : ''} ${style || ''}. Ultra realistic, 4K, good lighting, neutral background.`;
-
-  if (provider === 'dalle') {
-    const res = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1024x1024', quality: 'standard', response_format: 'b64_json' }),
-    });
-    const data = await res.json();
-    const b64 = data.data?.[0]?.b64_json;
-    if (b64) return Buffer.from(b64, 'base64');
+  try {
+    return await generateFaceImage(provider, apiKey, { appearance, gender, ageRange, style });
+  } catch (e) {
+    console.warn('[face-gen:failed]', e.message.slice(0, 120));
+    return null;
   }
-
-  if (provider === 'stability') {
-    const res = await fetch('https://api.stability.ai/v2beta/stable-image/generate/ultra', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'image/*' },
-      body: (() => { const f = new FormData(); f.append('prompt', prompt); f.append('output_format', 'jpeg'); return f; })(),
-    });
-    if (res.ok) return Buffer.from(await res.arrayBuffer());
-  }
-
-  if (provider === 'fal') {
-    const res = await fetch('https://fal.run/fal-ai/flux/schnell', {
-      method: 'POST',
-      headers: { Authorization: `Key ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, image_size: 'portrait_4_3', num_images: 1 }),
-    });
-    const data = await res.json();
-    const url = data.images?.[0]?.url;
-    if (url) { const r = await fetch(url); return Buffer.from(await r.arrayBuffer()); }
-  }
-
-  if (provider === 'replicate') {
-    const res = await fetch('https://api.replicate.com/v1/predictions', {
-      method: 'POST',
-      headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: 'black-forest-labs/flux-schnell', input: { prompt, aspect_ratio: '1:1' } }),
-    });
-    const task = await res.json();
-    const taskId = task.id;
-    if (taskId) {
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const poll = await fetch(`https://api.replicate.com/v1/predictions/${taskId}`, { headers: { Authorization: `Token ${apiKey}` } });
-        const t = await poll.json();
-        if (t.status === 'succeeded' && t.output) {
-          const url = Array.isArray(t.output) ? t.output[0] : t.output;
-          const r = await fetch(url); return Buffer.from(await r.arrayBuffer());
-        }
-        if (t.status === 'failed') break;
-      }
-    }
-  }
-
-  return null;
 }
 
-async function generateVideoVeo(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Google Veo 2 / 3 (via Gemini Video API)
-  const prompt = scenePrompt || plan.sceneDescription || 'Person speaking in cinematic style';
-  const body = {
-    model: 'veo-002',
-    instances: [{ prompt }],
-    parameters: { aspectRatio: '9:16', sampleCount: 1 },
-  };
-  const res = await fetch('https://us-central1-aiplatform.googleapis.com/v1/projects/google/locations/us-central1/publishers/google/models/veo-002:predictLongRunning', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await res.json();
-  const taskName = task.name;
-  if (!taskName) throw new Error(`Veo task creation failed: ${JSON.stringify(task).slice(0, 200)}`);
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/${taskName}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const t = await poll.json();
-    if (t.done && t.response?.videos?.[0]?.bytesBase64Encoded) {
-      fs.writeFileSync(outputPath, Buffer.from(t.response.videos[0].bytesBase64Encoded, 'base64'));
-      return { level: 3, label: 'Full Scene AI (Veo)', provider: 'veo' };
-    }
-    if (t.error) throw new Error(`Veo failed: ${t.error.message || 'unknown'}`);
-  }
-  throw new Error('Veo task timed out');
-}
-
-async function generateVideoSeedance(db, { plan, facePath, audioPath, outputPath, jobId, apiKey, scenePrompt }) {
-  // Seedance video generation (ByteDance)
-  const prompt = scenePrompt || plan.sceneDescription || 'Person speaking in cinematic style';
-  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
-  const body = {
-    model: 'seedance-1-lite',
-    prompt,
-    ...(imageBase64 ? { image: `data:image/jpeg;base64,${imageBase64}` } : {}),
-    duration: Math.min(10, plan.shots?.[0]?.duration || 5),
-    aspect_ratio: '9:16',
-  };
-  const taskRes = await fetch('https://api.seedance.ai/v1/video/generate', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const task = await taskRes.json();
-  const taskId = task.task_id || task.id;
-  if (!taskId) throw new Error(`Seedance task failed: ${JSON.stringify(task).slice(0, 200)}`);
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const poll = await fetch(`https://api.seedance.ai/v1/video/status/${taskId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const t = await poll.json();
-    if ((t.status === 'completed' || t.status === 'succeed') && (t.video_url || t.url)) {
-      const vid = await fetch(t.video_url || t.url);
-      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
-      return { level: 3, label: 'Full Scene AI (Seedance)', provider: 'seedance' };
-    }
-    if (t.status === 'failed') throw new Error(`Seedance failed: ${t.message || 'unknown'}`);
-  }
-  throw new Error('Seedance task timed out');
-}
 
 // ─── Main video generation pipeline ──────────────────────────────────────────
 
@@ -2058,7 +1669,18 @@ async function handleAPI(req, res, pathname) {
       throw Object.assign(new Error(hint), { status: 400, code: 'NO_IDENTITY' });
     }
 
-    const mode = body.mode || 'talking_head';
+    // Pre-generation blocking: if scene/action requested with no Level 3+ provider, reject BEFORE queuing
+    const hasScene = !!(body.scene || body.action);
+    const activeLevel = getActiveQualityLevel(db);
+    if (hasScene && activeLevel < 3) {
+      const vp = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
+      const blockMsg = vp === 'static' || !vp
+        ? 'Scene and action video requires a Level 3+ video provider. Configure Runway, Kling, Luma, Hailuo, or Replicate in Settings → AI Video Generation.'
+        : `Your current provider "${vp}" is not properly configured (missing API key or provider error). Add your API key in Settings to generate scene video.`;
+      throw Object.assign(new Error(blockMsg), { status: 400, code: 'PROVIDER_REQUIRED', requiredLevel: 3 });
+    }
+
+    const mode = body.mode || 'director';
     const cost = CREDIT_COSTS[mode] || CREDIT_COSTS.talking_head;
     if (user.role !== 'admin' && (user.credits || 0) < cost) {
       throw new Error(`Not enough credits. This generation costs ${cost} credits. You have ${user.credits}.`);
@@ -2319,6 +1941,29 @@ async function handleAPI(req, res, pathname) {
     } catch(e) {
       return json(res, 200, { ok: false, message: e.message });
     }
+  }
+
+  // ── Provider manifest — returns all providers with status, features, links ──
+  if (pathname === '/api/providers/manifest' && method === 'GET') {
+    requireUser(req, db);
+    const videoManifest = getProviderManifest();
+    const imageManifest = getImageProviderManifest();
+    const currentVideoProvider = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
+    const hasVideoKey = !!(settingValue(db, 'VIDEO_GEN_API_KEY') || settingValue(db, 'VEO_API_KEY'));
+    const currentImageProvider = settingValue(db, 'IMAGE_GEN_PROVIDER') || 'none';
+    const hasImageKey = !!(settingValue(db, 'IMAGE_GEN_API_KEY'));
+    return json(res, 200, { videoProviders: videoManifest, imageProviders: imageManifest, currentVideoProvider, hasVideoKey, currentImageProvider, hasImageKey });
+  }
+
+  // ── Test provider connection ───────────────────────────────────────────────
+  if (pathname === '/api/providers/test' && method === 'POST') {
+    requireUser(req, db);
+    const body = await readJson(req);
+    const { providerId, apiKey } = body;
+    if (!providerId) return json(res, 400, { error: 'providerId is required' });
+    const key = apiKey || settingValue(db, 'VIDEO_GEN_API_KEY') || settingValue(db, 'VEO_API_KEY');
+    const result = await testProviderConnection(providerId, key);
+    return json(res, 200, result);
   }
 
   // ── Setup check ───────────────────────────────────────────────────────────

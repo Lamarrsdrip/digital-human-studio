@@ -1137,3 +1137,60 @@ video { width: 100%; display: block; }
 .wizard-step-label { font-size: .6rem; color: var(--text3); }
 .wizard-step.active .wizard-step-label { color: var(--accent3); }
 .wizard-step.done .wizard-step-label { color: var(--green); }
+
+/* ── Provider settings cards ───────────────────────────────────────────────── */
+
+.key-link {
+  color: var(--accent2); text-decoration: none; font-weight: 600; font-size: .78rem;
+}
+.key-link:hover { text-decoration: underline; color: var(--accent3); }
+
+.provider-select-row { margin-bottom: 12px; }
+
+.provider-cards { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+
+.provider-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.provider-card:hover { border-color: rgba(124,92,252,.3); }
+
+.pc-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.pc-name { font-weight: 700; font-size: .9rem; color: var(--text1); margin-bottom: 3px; }
+.pc-desc { font-size: .78rem; color: var(--text2); line-height: 1.4; }
+.pc-body { padding: 14px 16px; }
+.pc-features {
+  padding: 10px 16px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  background: var(--bg3); border-top: 1px solid var(--border);
+}
+
+/* Feature tags */
+.feat-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 8px; border-radius: 12px; font-size: .68rem; font-weight: 600;
+}
+.feat-ok { background: rgba(34,197,94,.1); color: var(--green); }
+.feat-no { background: rgba(100,116,139,.1); color: var(--text3); text-decoration: line-through; opacity: .7; }
+
+/* Provider features row (inline, next to select) */
+.provider-features {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 8px 0 4px;
+}
+
+/* Settings input selects (inherited style) */
+.settings-input select, .settings-section select, .settings-section input[type="text"], .settings-section input[type="password"] {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text1);
+  padding: 10px 14px;
+  width: 100%;
+}

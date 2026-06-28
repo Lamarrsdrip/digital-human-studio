@@ -2436,72 +2436,92 @@ async function pageCreateFictional(el) {
   });
 }
 
+
 // ── Settings ───────────────────────────────────────────────────────────────────
 async function pageSettings(el) {
   el.innerHTML = `<div class="loader" style="margin:60px auto"></div>`;
   try {
-    const { settings } = await api('/api/settings');
+    const [{ settings }, manifest] = await Promise.all([
+      api('/api/settings'),
+      api('/api/providers/manifest').catch(() => ({ videoProviders: [], imageProviders: [] })),
+    ]);
     const get = (key) => settings.find(s => s.key === key)?.value || '';
 
+    const VIDEO_PROVIDERS_INFO = {
+      runway:    { name: 'Runway Gen-3/Gen-4', getKeyUrl: 'https://dev.runwayml.com/', keyHint: 'Get key at dev.runwayml.com → Account → API Keys', status: 'verified', level: 4 },
+      kling:     { name: 'Kling AI', getKeyUrl: 'https://klingai.com/api', keyHint: 'Get key at klingai.com → Developer Console', status: 'verified', level: 4 },
+      luma:      { name: 'Luma Dream Machine', getKeyUrl: 'https://lumalabs.ai/dream-machine/api', keyHint: 'Get key at lumalabs.ai → Dream Machine → API', status: 'verified', level: 3 },
+      hailuo:    { name: 'Hailuo / MiniMax', getKeyUrl: 'https://www.minimaxi.com/user-center/basic-information/interface-key', keyHint: 'Get key at minimaxi.com → User Center → API Key', status: 'verified', level: 3 },
+      replicate: { name: 'Replicate', getKeyUrl: 'https://replicate.com/account/api-tokens', keyHint: 'Get token at replicate.com → Account → API Tokens', status: 'verified', level: 3 },
+      pika:      { name: 'Pika Labs', getKeyUrl: 'https://pika.art/api', keyHint: 'Pika API is in limited access — apply at pika.art/api', status: 'partial', level: 3 },
+      veo:       { name: 'Veo 2 (Google)', getKeyUrl: 'https://console.cloud.google.com/vertex-ai', keyHint: 'Requires GCP project + OAuth2 token — complex setup', status: 'partial', level: 3 },
+      seedance:  { name: 'Seedance (ByteDance)', getKeyUrl: null, keyHint: 'No public API available', status: 'not_implemented', level: 0 },
+      static:    { name: 'None / Static Fallback', getKeyUrl: null, keyHint: 'No provider — static image + audio only (Level 0 test mode)', status: 'none', level: 0 },
+    };
+
+    function providerStatusBadge(info) {
+      if (!info) return '';
+      const s = info.status;
+      if (s === 'verified') return `<span style="background:rgba(34,197,94,.15);color:var(--green);border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">✅ Verified</span>`;
+      if (s === 'partial') return `<span style="background:rgba(245,158,11,.15);color:var(--yellow);border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">⚠ Partial</span>`;
+      if (s === 'not_implemented') return `<span style="background:rgba(239,68,68,.12);color:#f87171;border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">❌ Not Available</span>`;
+      return `<span style="background:rgba(100,116,139,.15);color:var(--text3);border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">— None</span>`;
+    }
+
+    function featureTag(ok, label) {
+      return `<span class="feat-tag ${ok ? 'feat-ok' : 'feat-no'}">${ok ? '✓' : '✗'} ${label}</span>`;
+    }
+
+    function providerFeatureRow(provId) {
+      const p = manifest.videoProviders?.find(p => p.id === provId);
+      if (!p) return '';
+      const f = p.features || {};
+      return `
+<div class="provider-features">
+  ${featureTag(f.textToVideo, 'Text→Video')}
+  ${featureTag(f.imageToVideo, 'Image→Video')}
+  ${featureTag(f.identityReference, 'Identity Ref')}
+  ${featureTag(f.audioSupport, 'Audio')}
+  ${featureTag(f.maxDurationSec >= 8, `${f.maxDurationSec || '?'}s max`)}
+  ${featureTag(f.aspectRatios?.includes('9:16'), '9:16')}
+</div>`;
+    }
+
+    const currentVideoProvider = get('VIDEO_GEN_PROVIDER') || 'static';
+    const currentInfo = VIDEO_PROVIDERS_INFO[currentVideoProvider] || VIDEO_PROVIDERS_INFO.static;
+
     el.innerHTML = `
-<div class="section-title mb-6">Settings</div>
+<div class="section-title mb-2">Settings</div>
 
 <div class="settings-section">
-  <div class="settings-section-title">AI Provider</div>
+  <div class="settings-section-title">General</div>
   <div class="settings-row">
     <div class="settings-label">Runtime Mode</div>
     <div class="settings-input">
-      <select id="set-runtime" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="local" ${get('AI_RUNTIME_MODE')==='local'?'selected':''}>Local (Free, requires workers)</option>
+      <select id="set-runtime">
+        <option value="local" ${get('AI_RUNTIME_MODE')==='local'?'selected':''}>Local (Free, requires workers installed)</option>
         <option value="hybrid" ${get('AI_RUNTIME_MODE')==='hybrid'?'selected':''}>Hybrid (Local + Cloud fallback)</option>
-        <option value="cloud" ${get('AI_RUNTIME_MODE')==='cloud'?'selected':''}>Cloud (Fastest, requires API keys)</option>
+        <option value="cloud" ${get('AI_RUNTIME_MODE')==='cloud'?'selected':''}>Cloud (Requires API keys, no local setup)</option>
       </select>
-    </div>
-  </div>
-  <div class="settings-row">
-    <div class="settings-label">TTS Provider</div>
-    <div class="settings-input">
-      <select id="set-tts" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="piper" ${get('TTS_PROVIDER')==='piper'?'selected':''}>Piper (Local, free)</option>
-        <option value="elevenlabs" ${get('TTS_PROVIDER')==='elevenlabs'?'selected':''}>ElevenLabs (Cloud, high quality)</option>
-        <option value="system" ${get('TTS_PROVIDER')==='system'?'selected':''}>System TTS (macOS say command)</option>
-      </select>
-    </div>
-  </div>
-  <div class="settings-row">
-    <div class="settings-label">Lipsync Provider</div>
-    <div class="settings-input">
-      <select id="set-lipsync" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="wav2lip" ${get('LIPSYNC_PROVIDER')==='wav2lip'?'selected':''}>Wav2Lip (Local, requires setup)</option>
-        <option value="sadtalker" ${get('LIPSYNC_PROVIDER')==='sadtalker'?'selected':''}>SadTalker (Local, higher quality)</option>
-        <option value="muapi" ${get('LIPSYNC_PROVIDER')==='muapi'?'selected':''}>Muapi (Cloud)</option>
-        <option value="static" ${get('LIPSYNC_PROVIDER')==='static'?'selected':''}>Static (No lipsync, just audio over image)</option>
-      </select>
+      <div class="settings-hint">Local mode is for testing only — it cannot generate real cinematic scene videos. Cloud providers required for real AI video.</div>
     </div>
   </div>
 </div>
 
 <div class="settings-section">
-  <div class="settings-section-title">API Keys</div>
+  <div class="settings-section-title">🧠 AI Planning (Gemini)</div>
   <div class="settings-row">
-    <div class="settings-label">Gemini AI Key</div>
+    <div class="settings-label">Gemini API Key</div>
     <div class="settings-input">
       <input type="password" id="set-gemini" value="${escHtml(get('GEMINI_API_KEY'))}" placeholder="AIza...">
-      <div class="settings-hint">Get your free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
+      <div class="settings-hint">Used for storyboard planning + script writing. <a href="https://aistudio.google.com/app/apikey" target="_blank" class="key-link">Get free key at aistudio.google.com →</a></div>
     </div>
   </div>
   <div class="settings-row">
     <div class="settings-label">Gemini Model</div>
     <div class="settings-input">
       <input type="text" id="set-gemini-model" value="${escHtml(get('GEMINI_MODEL')||'gemini-2.5-flash-lite')}" placeholder="gemini-2.5-flash-lite">
-      <div class="settings-hint">Default: gemini-2.5-flash-lite</div>
-    </div>
-  </div>
-  <div class="settings-row">
-    <div class="settings-label">ElevenLabs Key</div>
-    <div class="settings-input">
-      <input type="password" id="set-elevenlabs" value="${escHtml(get('VOICE_API_KEY'))}" placeholder="sk-...">
-      <div class="settings-hint">Required for ElevenLabs TTS provider</div>
+      <div class="settings-hint">Default: gemini-2.5-flash-lite (free tier). Use gemini-2.0-flash for better quality.</div>
     </div>
   </div>
   <div class="settings-row">
@@ -2514,81 +2534,225 @@ async function pageSettings(el) {
 </div>
 
 <div class="settings-section">
-  <div class="settings-section-title">🎬 AI Video Generation (Levels 3–4)</div>
+  <div class="settings-section-title">🎙️ Voice / TTS</div>
   <div class="settings-row">
-    <div class="settings-label">Video Provider</div>
+    <div class="settings-label">TTS Provider</div>
     <div class="settings-input">
-      <select id="set-video-provider" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="static" ${get('VIDEO_GEN_PROVIDER')==='static'?'selected':''}>None / Static (Level 0 — still image + audio only)</option>
-        <optgroup label="── Level 4: Cinematic AI ──">
-          <option value="runway" ${get('VIDEO_GEN_PROVIDER')==='runway'?'selected':''}>Runway Gen-3 (Level 4 — best identity preservation)</option>
-          <option value="kling" ${get('VIDEO_GEN_PROVIDER')==='kling'?'selected':''}>Kling AI (Level 4 — cinematic full scene)</option>
-          <option value="veo" ${get('VIDEO_GEN_PROVIDER')==='veo'?'selected':''}>Veo 2 by Google (Level 3 — high realism)</option>
-          <option value="seedance" ${get('VIDEO_GEN_PROVIDER')==='seedance'?'selected':''}>Seedance by ByteDance (Level 3 — fast cinematic)</option>
-        </optgroup>
-        <optgroup label="── Level 3: AI Motion ──">
-          <option value="pika" ${get('VIDEO_GEN_PROVIDER')==='pika'?'selected':''}>Pika Labs (Level 3)</option>
-          <option value="luma" ${get('VIDEO_GEN_PROVIDER')==='luma'?'selected':''}>Luma Dream Machine (Level 3)</option>
-          <option value="hailuo" ${get('VIDEO_GEN_PROVIDER')==='hailuo'?'selected':''}>Hailuo / MiniMax (Level 3)</option>
-          <option value="replicate" ${get('VIDEO_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (Level 3)</option>
-        </optgroup>
+      <select id="set-tts">
+        <option value="piper" ${get('TTS_PROVIDER')==='piper'?'selected':''}>Piper (Local, free — requires Piper installed)</option>
+        <option value="elevenlabs" ${get('TTS_PROVIDER')==='elevenlabs'?'selected':''}>ElevenLabs (Cloud, high quality voice synthesis)</option>
+        <option value="system" ${get('TTS_PROVIDER')==='system'?'selected':''}>System TTS (macOS "say" command)</option>
       </select>
-      <div class="settings-hint">Level 0 = static image. Level 3+ = real AI-generated video scenes from your identity reference.</div>
+      <div class="settings-hint">Voice status: <strong>No voice cloning active</strong> — TTS generates a synthetic voice, not your real voice. Clone your voice with ElevenLabs for authentic AI twin speech.</div>
     </div>
   </div>
   <div class="settings-row">
-    <div class="settings-label">API Key</div>
+    <div class="settings-label">ElevenLabs API Key</div>
     <div class="settings-input">
-      <input type="password" id="set-video-key" value="${escHtml(get('VIDEO_GEN_API_KEY'))}" placeholder="Runway / Kling / Pika / Luma / Replicate API key">
-      <div class="settings-hint">Used for Runway, Kling, Pika, Luma, Hailuo, Replicate.</div>
+      <input type="password" id="set-elevenlabs" value="${escHtml(get('VOICE_API_KEY'))}" placeholder="sk-...">
+      <div class="settings-hint"><a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" class="key-link">Get key at elevenlabs.io → Settings → API Keys →</a></div>
     </div>
   </div>
   <div class="settings-row">
-    <div class="settings-label">Veo API Key</div>
+    <div class="settings-label">Lipsync Provider</div>
     <div class="settings-input">
-      <input type="password" id="set-veo-key" value="${escHtml(get('VEO_API_KEY'))}" placeholder="Google Vertex AI key (for Veo 2)">
-      <div class="settings-hint">Only needed when provider is set to Veo. Get from Google Cloud Console.</div>
+      <select id="set-lipsync">
+        <option value="wav2lip" ${get('LIPSYNC_PROVIDER')==='wav2lip'?'selected':''}>Wav2Lip (Local — requires Python setup)</option>
+        <option value="sadtalker" ${get('LIPSYNC_PROVIDER')==='sadtalker'?'selected':''}>SadTalker (Local — better expressions, requires setup)</option>
+        <option value="muapi" ${get('LIPSYNC_PROVIDER')==='muapi'?'selected':''}>Muapi (Cloud lipsync — no local setup)</option>
+        <option value="static" ${get('LIPSYNC_PROVIDER')==='static'?'selected':''}>Static (No lipsync — audio over still image)</option>
+      </select>
+      <div class="settings-hint">Lipsync = Level 1 (Talking Head). For Level 3–4 cinematic scene video, use a cloud video provider below instead.</div>
     </div>
   </div>
   <div class="settings-row">
-    <div class="settings-label">Seedance API Key</div>
+    <div class="settings-label">Muapi Key</div>
     <div class="settings-input">
-      <input type="password" id="set-seedance-key" value="${escHtml(get('SEEDANCE_API_KEY'))}" placeholder="ByteDance Seedance API key">
-      <div class="settings-hint">Only needed when provider is set to Seedance.</div>
+      <input type="password" id="set-muapi" value="${escHtml(get('MUAPI_API_KEY'))}" placeholder="Muapi API key">
+      <div class="settings-hint"><a href="https://console.muapi.ai" target="_blank" class="key-link">Get key at console.muapi.ai →</a></div>
     </div>
   </div>
 </div>
 
 <div class="settings-section">
-  <div class="settings-section-title">AI Image Generation (Synthetic Faces)</div>
+  <div class="settings-section-title">🎬 AI Video Generation — Active: ${providerStatusBadge(currentInfo)} ${currentInfo.name} ${currentInfo.level > 0 ? `<span style="font-size:.72rem;color:var(--text3);font-weight:400">(Level ${currentInfo.level})</span>` : ''}</div>
+
+  <div class="provider-select-row">
+    <div class="settings-row" style="margin-bottom:8px">
+      <div class="settings-label">Video Provider</div>
+      <div class="settings-input">
+        <select id="set-video-provider">
+          <option value="static" ${get('VIDEO_GEN_PROVIDER')==='static'?'selected':''}>None / Static (Level 0 — testing only, no real video)</option>
+          <optgroup label="── Level 4: Cinematic (Recommended) ──">
+            <option value="runway"    ${get('VIDEO_GEN_PROVIDER')==='runway'?'selected':''}>Runway Gen-4 Turbo ✅ Verified</option>
+            <option value="kling"     ${get('VIDEO_GEN_PROVIDER')==='kling'?'selected':''}>Kling AI v1.5 ✅ Verified</option>
+          </optgroup>
+          <optgroup label="── Level 3: Full Scene AI ──">
+            <option value="luma"      ${get('VIDEO_GEN_PROVIDER')==='luma'?'selected':''}>Luma Dream Machine (Ray-2) ✅ Verified</option>
+            <option value="hailuo"    ${get('VIDEO_GEN_PROVIDER')==='hailuo'?'selected':''}>Hailuo / MiniMax Video-01 ✅ Verified</option>
+            <option value="replicate" ${get('VIDEO_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (MiniMax/Video-01) ✅ Verified</option>
+            <option value="veo"       ${get('VIDEO_GEN_PROVIDER')==='veo'?'selected':''}>Veo 2 — Google Vertex AI ⚠ Complex Setup</option>
+            <option value="pika"      ${get('VIDEO_GEN_PROVIDER')==='pika'?'selected':''}>Pika Labs ⚠ Limited Access Only</option>
+            <option value="seedance"  ${get('VIDEO_GEN_PROVIDER')==='seedance'?'selected':''}>Seedance (ByteDance) ❌ Not Available</option>
+          </optgroup>
+        </select>
+        <div class="settings-hint">Level 0 = static image test. Level 3+ = real AI-generated scene video from your identity reference.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="provider-feature-display">${providerFeatureRow(get('VIDEO_GEN_PROVIDER') || 'static')}</div>
+
+  <div class="provider-cards" id="provider-cards-area">
+
+    <div class="provider-card" id="pcard-runway">
+      <div class="pc-header">
+        <div>
+          <div class="pc-name">Runway Gen-3/Gen-4 Turbo</div>
+          <div class="pc-desc">Best for identity preservation + cinematic scene. Industry standard.</div>
+        </div>
+        <div>${providerStatusBadge(VIDEO_PROVIDERS_INFO.runway)}</div>
+      </div>
+      <div class="pc-body">
+        <div class="settings-row">
+          <div class="settings-label">API Key</div>
+          <div class="settings-input">
+            <input type="password" id="set-video-key" value="${escHtml(get('VIDEO_GEN_API_KEY'))}" placeholder="Runway / Kling / Hailuo / Replicate API key">
+            <div class="settings-hint"><a href="https://dev.runwayml.com/" target="_blank" class="key-link">Runway: dev.runwayml.com → Account → API Keys →</a></div>
+            <div class="settings-hint"><a href="https://klingai.com/api" target="_blank" class="key-link">Kling: klingai.com → Developer Console →</a></div>
+            <div class="settings-hint"><a href="https://replicate.com/account/api-tokens" target="_blank" class="key-link">Replicate: replicate.com → Account → API Tokens →</a></div>
+            <div class="settings-hint" style="color:var(--text3);margin-top:6px">This key is shared by Runway, Kling, Luma, Hailuo, Replicate. Veo uses a separate key below.</div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label"></div>
+          <div class="settings-input" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" data-test-provider="runway">Test Runway Connection</button>
+            <button class="btn btn-ghost btn-sm" data-test-provider="kling">Test Kling Connection</button>
+            <button class="btn btn-ghost btn-sm" data-test-provider="luma">Test Luma Connection</button>
+            <button class="btn btn-ghost btn-sm" data-test-provider="hailuo">Test Hailuo Connection</button>
+            <button class="btn btn-ghost btn-sm" data-test-provider="replicate">Test Replicate Connection</button>
+            <span id="video-test-result" style="font-size:.78rem;color:var(--text3)"></span>
+          </div>
+        </div>
+      </div>
+      <div class="pc-features">
+        ${featureTag(true, 'Text→Video')} ${featureTag(true, 'Image→Video')} ${featureTag(true, 'Identity Ref')} ${featureTag(false, 'Audio')} ${featureTag(true, '9:16')} ${featureTag(true, '5–10s')}
+      </div>
+    </div>
+
+    <div class="provider-card" id="pcard-luma">
+      <div class="pc-header">
+        <div>
+          <div class="pc-name">Luma Dream Machine (Ray-2)</div>
+          <div class="pc-desc">Fast video generation. Image-to-video requires a public image URL — set SERVER_PUBLIC_URL below.</div>
+        </div>
+        <div>${providerStatusBadge(VIDEO_PROVIDERS_INFO.luma)}</div>
+      </div>
+      <div class="pc-body">
+        <div class="settings-row">
+          <div class="settings-label">Luma API Key</div>
+          <div class="settings-input">
+            <input type="password" id="set-luma-key" value="${escHtml(get('LUMA_API_KEY'))}" placeholder="luma-...">
+            <div class="settings-hint"><a href="https://lumalabs.ai/dream-machine/api" target="_blank" class="key-link">Get key: lumalabs.ai → Dream Machine → API →</a></div>
+          </div>
+        </div>
+      </div>
+      <div class="pc-features">
+        ${featureTag(true, 'Text→Video')} ${featureTag(true, 'Image→Video*')} ${featureTag(true, 'Identity Ref*')} ${featureTag(false, 'Audio')} ${featureTag(true, '9:16')}
+        <div style="color:var(--text3);font-size:.7rem;margin-top:4px">* Image reference requires a public URL — set SERVER_PUBLIC_URL in Advanced settings</div>
+      </div>
+    </div>
+
+    <div class="provider-card" id="pcard-veo">
+      <div class="pc-header">
+        <div>
+          <div class="pc-name">Veo 2 (Google Vertex AI)</div>
+          <div class="pc-desc">Complex setup. Requires GCP project, Vertex AI access, and OAuth2 token — not a simple API key.</div>
+        </div>
+        <div>${providerStatusBadge(VIDEO_PROVIDERS_INFO.veo)}</div>
+      </div>
+      <div class="pc-body">
+        <div class="settings-row">
+          <div class="settings-label">Veo OAuth2 Token</div>
+          <div class="settings-input">
+            <input type="password" id="set-veo-key" value="${escHtml(get('VEO_API_KEY'))}" placeholder="gcloud auth print-access-token output">
+            <div class="settings-hint"><a href="https://console.cloud.google.com/vertex-ai" target="_blank" class="key-link">Setup: console.cloud.google.com → Vertex AI →</a></div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">GCP Project ID</div>
+          <div class="settings-input">
+            <input type="text" id="set-gcp-project" value="${escHtml(get('GOOGLE_PROJECT_ID'))}" placeholder="your-gcp-project-id">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">GCP Region</div>
+          <div class="settings-input">
+            <input type="text" id="set-gcp-region" value="${escHtml(get('GOOGLE_REGION') || 'us-central1')}" placeholder="us-central1">
+          </div>
+        </div>
+        <div class="engine-warn" style="font-size:.78rem">⚠ Veo tokens expire hourly. You need to run <code>gcloud auth print-access-token</code> and paste the output. Not suitable for production without a server-side OAuth2 flow.</div>
+      </div>
+    </div>
+
+    <div class="provider-card" id="pcard-pika">
+      <div class="pc-header">
+        <div>
+          <div class="pc-name">Pika Labs</div>
+          <div class="pc-desc">API in limited beta — not open to all users. Apply for access at pika.art/api.</div>
+        </div>
+        <div>${providerStatusBadge(VIDEO_PROVIDERS_INFO.pika)}</div>
+      </div>
+    </div>
+
+    <div class="provider-card" id="pcard-seedance" style="opacity:.5">
+      <div class="pc-header">
+        <div>
+          <div class="pc-name">Seedance (ByteDance)</div>
+          <div class="pc-desc">No public API available. Marked as coming soon — do not use.</div>
+        </div>
+        <div>${providerStatusBadge(VIDEO_PROVIDERS_INFO.seedance)}</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="settings-section">
+  <div class="settings-section-title">🖼️ AI Image Generation (Synthetic Face)</div>
   <div class="settings-row">
     <div class="settings-label">Image Provider</div>
     <div class="settings-input">
-      <select id="set-image-provider" style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text1)">
-        <option value="none" ${get('IMAGE_GEN_PROVIDER')==='none'?'selected':''}>None (manual face upload)</option>
-        <option value="dalle" ${get('IMAGE_GEN_PROVIDER')==='dalle'?'selected':''}>DALL·E 3 (OpenAI)</option>
-        <option value="stability" ${get('IMAGE_GEN_PROVIDER')==='stability'?'selected':''}>Stability AI</option>
-        <option value="fal" ${get('IMAGE_GEN_PROVIDER')==='fal'?'selected':''}>FAL (FLUX)</option>
-        <option value="replicate" ${get('IMAGE_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (FLUX)</option>
+      <select id="set-image-provider">
+        <option value="none" ${get('IMAGE_GEN_PROVIDER')==='none'?'selected':''}>None (upload face photo manually)</option>
+        <option value="openai" ${get('IMAGE_GEN_PROVIDER')==='openai'?'selected':''}>OpenAI DALL-E 3 ✅</option>
+        <option value="stability" ${get('IMAGE_GEN_PROVIDER')==='stability'?'selected':''}>Stability AI Ultra ✅</option>
+        <option value="fal" ${get('IMAGE_GEN_PROVIDER')==='fal'?'selected':''}>FAL (FLUX Schnell) ✅</option>
+        <option value="replicate" ${get('IMAGE_GEN_PROVIDER')==='replicate'?'selected':''}>Replicate (FLUX Schnell) ✅</option>
       </select>
-      <div class="settings-hint">Auto-generates a face for synthetic humans created from a prompt.</div>
+      <div class="settings-hint">Used to auto-generate a face image when creating a Synthetic Human from description.</div>
     </div>
   </div>
   <div class="settings-row">
     <div class="settings-label">Image API Key</div>
     <div class="settings-input">
       <input type="password" id="set-image-key" value="${escHtml(get('IMAGE_GEN_API_KEY'))}" placeholder="Provider API key">
+      <div class="settings-hint">
+        <a href="https://platform.openai.com/api-keys" target="_blank" class="key-link">OpenAI: platform.openai.com/api-keys →</a><br>
+        <a href="https://platform.stability.ai/account/keys" target="_blank" class="key-link">Stability: platform.stability.ai →</a><br>
+        <a href="https://fal.ai/dashboard/keys" target="_blank" class="key-link">FAL: fal.ai/dashboard/keys →</a>
+      </div>
     </div>
   </div>
 </div>
 
 <div class="settings-section">
-  <div class="settings-section-title">Paths</div>
+  <div class="settings-section-title">⚙️ Local / Advanced</div>
   <div class="settings-row">
     <div class="settings-label">FFmpeg Path</div>
     <div class="settings-input">
       <input type="text" id="set-ffmpeg" value="${escHtml(get('FFMPEG_PATH')||'ffmpeg')}" placeholder="ffmpeg">
-      <div class="settings-hint">Full path to ffmpeg binary, or just "ffmpeg" if in PATH</div>
     </div>
   </div>
   <div class="settings-row">
@@ -2597,10 +2761,17 @@ async function pageSettings(el) {
       <input type="text" id="set-wav2lip" value="${escHtml(get('WAV2LIP_PATH'))}" placeholder="/path/to/Wav2Lip">
     </div>
   </div>
+  <div class="settings-row">
+    <div class="settings-label">Server Public URL</div>
+    <div class="settings-input">
+      <input type="text" id="set-public-url" value="${escHtml(get('SERVER_PUBLIC_URL'))}" placeholder="https://your-tunnel.trycloudflare.com">
+      <div class="settings-hint">Required for Luma image-to-video reference. If you use Cloudflare tunnel, paste the current tunnel URL here.</div>
+    </div>
+  </div>
 </div>
 
 <div style="display:flex;gap:10px;margin-bottom:32px">
-  <button class="btn btn-primary" id="save-settings-btn">Save Settings</button>
+  <button class="btn btn-primary" id="save-settings-btn">Save All Settings</button>
   <div id="settings-save-status" style="display:flex;align-items:center;font-size:.85rem;color:var(--text3)"></div>
 </div>
 
@@ -2615,35 +2786,49 @@ async function pageSettings(el) {
   </div>
 </div>`;
 
-    document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
-      const btn = document.getElementById('save-settings-btn');
-      const status = document.getElementById('settings-save-status');
-      btn.disabled = true; btn.textContent = 'Saving…';
-      try {
-        const settingsList = [
-          { key: 'AI_RUNTIME_MODE', value: document.getElementById('set-runtime')?.value },
-          { key: 'TTS_PROVIDER', value: document.getElementById('set-tts')?.value },
-          { key: 'LIPSYNC_PROVIDER', value: document.getElementById('set-lipsync')?.value },
-          { key: 'GEMINI_API_KEY', value: document.getElementById('set-gemini')?.value },
-          { key: 'GEMINI_MODEL', value: document.getElementById('set-gemini-model')?.value || 'gemini-2.5-flash-lite' },
-          { key: 'VOICE_API_KEY', value: document.getElementById('set-elevenlabs')?.value },
-          { key: 'WAV2LIP_PATH', value: document.getElementById('set-wav2lip')?.value },
-          { key: 'FFMPEG_PATH', value: document.getElementById('set-ffmpeg')?.value || 'ffmpeg' },
-          { key: 'VIDEO_GEN_PROVIDER', value: document.getElementById('set-video-provider')?.value || 'static' },
-          { key: 'VIDEO_GEN_API_KEY', value: document.getElementById('set-video-key')?.value || '' },
-          { key: 'VEO_API_KEY', value: document.getElementById('set-veo-key')?.value || '' },
-          { key: 'SEEDANCE_API_KEY', value: document.getElementById('set-seedance-key')?.value || '' },
-          { key: 'IMAGE_GEN_PROVIDER', value: document.getElementById('set-image-provider')?.value || 'none' },
-          { key: 'IMAGE_GEN_API_KEY', value: document.getElementById('set-image-key')?.value || '' },
-        ];
-        await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: settingsList }) });
-        status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
-        toast('Settings saved!', 'success');
-      } catch(e) { toast(e.message, 'error'); status.textContent = '❌ ' + e.message; status.style.color = 'var(--red)'; }
-      btn.disabled = false; btn.textContent = 'Save Settings';
-      setTimeout(() => { status.textContent = ''; }, 3000);
+    // Provider selection → show/hide feature row
+    document.getElementById('set-video-provider')?.addEventListener('change', (e) => {
+      const id = e.target.value;
+      const info = VIDEO_PROVIDERS_INFO[id] || {};
+      const feat = document.getElementById('provider-feature-display');
+      if (feat) {
+        const p = manifest.videoProviders?.find(p => p.id === id);
+        feat.innerHTML = p ? (() => {
+          const f = p.features || {};
+          return `<div class="provider-features">
+            ${featureTag(f.textToVideo, 'Text→Video')}
+            ${featureTag(f.imageToVideo, 'Image→Video')}
+            ${featureTag(f.identityReference, 'Identity Ref')}
+            ${featureTag(f.audioSupport, 'Audio')}
+            ${featureTag(f.maxDurationSec >= 8, `${f.maxDurationSec||'?'}s max`)}
+            ${featureTag(f.aspectRatios?.includes('9:16'), '9:16')}
+          </div>`;
+        })() : '';
+      }
     });
 
+    // Test provider buttons
+    el.querySelectorAll('[data-test-provider]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pid = btn.dataset.testProvider;
+        const resultEl = document.getElementById('video-test-result');
+        btn.disabled = true; btn.textContent = 'Testing…';
+        if (resultEl) resultEl.textContent = '';
+        try {
+          const key = document.getElementById('set-video-key')?.value.trim();
+          const res = await api('/api/providers/test', { method: 'POST', body: JSON.stringify({ providerId: pid, apiKey: key }) });
+          if (resultEl) {
+            resultEl.textContent = res.ok ? `✅ ${res.message}` : `❌ ${res.message}`;
+            resultEl.style.color = res.ok ? 'var(--green)' : 'var(--red)';
+          }
+          if (res.ok) toast(`${pid}: ${res.message}`, 'success'); else toast(`${pid}: ${res.message}`, 'error');
+        } catch(e) { toast(e.message, 'error'); }
+        btn.disabled = false;
+        btn.textContent = `Test ${pid.charAt(0).toUpperCase() + pid.slice(1)} Connection`;
+      });
+    });
+
+    // Test Gemini
     document.getElementById('test-gemini-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('test-gemini-btn');
       const result = document.getElementById('gemini-test-result');
@@ -2656,6 +2841,40 @@ async function pageSettings(el) {
       btn.disabled = false;
     });
 
+    // Save settings
+    document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('save-settings-btn');
+      const status = document.getElementById('settings-save-status');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const settingsList = [
+          { key: 'AI_RUNTIME_MODE',  value: document.getElementById('set-runtime')?.value },
+          { key: 'TTS_PROVIDER',     value: document.getElementById('set-tts')?.value },
+          { key: 'LIPSYNC_PROVIDER', value: document.getElementById('set-lipsync')?.value },
+          { key: 'GEMINI_API_KEY',   value: document.getElementById('set-gemini')?.value },
+          { key: 'GEMINI_MODEL',     value: document.getElementById('set-gemini-model')?.value || 'gemini-2.5-flash-lite' },
+          { key: 'VOICE_API_KEY',    value: document.getElementById('set-elevenlabs')?.value },
+          { key: 'MUAPI_API_KEY',    value: document.getElementById('set-muapi')?.value },
+          { key: 'WAV2LIP_PATH',     value: document.getElementById('set-wav2lip')?.value },
+          { key: 'FFMPEG_PATH',      value: document.getElementById('set-ffmpeg')?.value || 'ffmpeg' },
+          { key: 'VIDEO_GEN_PROVIDER', value: document.getElementById('set-video-provider')?.value || 'static' },
+          { key: 'VIDEO_GEN_API_KEY',  value: document.getElementById('set-video-key')?.value || '' },
+          { key: 'VEO_API_KEY',      value: document.getElementById('set-veo-key')?.value || '' },
+          { key: 'LUMA_API_KEY',     value: document.getElementById('set-luma-key')?.value || '' },
+          { key: 'GOOGLE_PROJECT_ID', value: document.getElementById('set-gcp-project')?.value || '' },
+          { key: 'GOOGLE_REGION',    value: document.getElementById('set-gcp-region')?.value || 'us-central1' },
+          { key: 'IMAGE_GEN_PROVIDER', value: document.getElementById('set-image-provider')?.value || 'none' },
+          { key: 'IMAGE_GEN_API_KEY',  value: document.getElementById('set-image-key')?.value || '' },
+          { key: 'SERVER_PUBLIC_URL',  value: document.getElementById('set-public-url')?.value || '' },
+        ];
+        await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: settingsList }) });
+        status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
+        toast('Settings saved!', 'success');
+      } catch(e) { toast(e.message, 'error'); status.textContent = '❌ ' + e.message; status.style.color = 'var(--red)'; }
+      btn.disabled = false; btn.textContent = 'Save All Settings';
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    });
+
     document.getElementById('reset-settings-btn')?.addEventListener('click', async () => {
       if (!confirm('Reset all settings to defaults? API keys will be cleared.')) return;
       const defaults = [
@@ -2664,6 +2883,8 @@ async function pageSettings(el) {
         { key: 'LIPSYNC_PROVIDER', value: 'wav2lip' },
         { key: 'GEMINI_API_KEY', value: '' },
         { key: 'VOICE_API_KEY', value: '' },
+        { key: 'VIDEO_GEN_PROVIDER', value: 'static' },
+        { key: 'VIDEO_GEN_API_KEY', value: '' },
       ];
       try {
         await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ settings: defaults }) });
@@ -2671,13 +2892,10 @@ async function pageSettings(el) {
         pageSettings(el);
       } catch(e) { toast(e.message, 'error'); }
     });
+
   } catch(e) { el.innerHTML = `<div class="error-box">${e.message}</div>`; }
 }
 
-// ── Utils ──────────────────────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
 
 // ── Init ───────────────────────────────────────────────────────────────────
 if (!document.getElementById('toasts')) {
