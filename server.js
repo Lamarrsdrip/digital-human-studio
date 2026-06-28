@@ -55,6 +55,25 @@ const PLANS = {
   enterprise: { credits: 2000,priceUSD: 149, features: Object.keys(CREDIT_COSTS) },
 };
 
+// ─── Quality levels ─────────────────────────────────────────────────────────
+const QUALITY_LEVELS = {
+  1: { id: 'static',       label: 'Static Fallback',        desc: 'FFmpeg overlay — NOT real AI video. For testing only.' },
+  2: { id: 'talking_head', label: 'Talking Head',           desc: 'Lip-synced face animation (Wav2Lip / SadTalker).' },
+  3: { id: 'image_to_video', label: 'AI Motion Video',     desc: 'Identity animated with motion (Runway i2v / Kling i2v).' },
+  4: { id: 'full_scene',   label: 'Full Scene Video',       desc: 'Cinematic scene + identity (Runway / Veo / Kling / Pika).' },
+  5: { id: 'custom',       label: 'Custom GPU Model',       desc: 'Local or cloud custom model.' },
+};
+
+function getActiveQualityLevel(db) {
+  const vp = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
+  const lipsyncWorker = existsSync(join(WORKERS_DIR, 'lipsync_worker.py'));
+  if (['runway', 'kling', 'pika', 'luma', 'hailuo', 'replicate'].includes(vp)) {
+    return vp === 'runway' || vp === 'kling' ? 4 : 3;
+  }
+  if (lipsyncWorker) return 2;
+  return 1;
+}
+
 // ─── Database ─────────────────────────────────────────────────────────────────
 
 function loadDb() {
@@ -91,6 +110,11 @@ function defaultDb() {
       { key: 'GEMINI_MODEL',     value: 'gemini-2.5-flash-lite' },
       { key: 'VOICE_API_KEY',    value: VOICE_API_KEY   },
       { key: 'MUAPI_API_KEY',    value: MUAPI_KEY       },
+      { key: 'VIDEO_GEN_PROVIDER', value: 'static' },      // static|runway|kling|pika|luma|hailuo|replicate
+      { key: 'VIDEO_GEN_API_KEY',  value: '' },
+      { key: 'IMAGE_GEN_PROVIDER', value: 'none' },        // none|dalle|stability|replicate|fal
+      { key: 'IMAGE_GEN_API_KEY',  value: '' },
+      { key: 'FFMPEG_PATH',        value: 'ffmpeg' },
     ],
     creditTransactions: [],
   };
@@ -337,10 +361,9 @@ async function runLipsync(db, facePath, audioPath, outputPath, { jobId = '' } = 
     }
   }
 
-  // Static FFmpeg fallback — static image + audio (produces a real video, just no lip movement)
-  console.warn('[lipsync:fallback] no lip sync model available — using static image + audio');
-  await staticImageVideo(facePath, audioPath, outputPath);
-  return outputPath;
+  // No lipsync available — throw so the caller (generateVideoWithProvider) can do its own
+  // level-1 static fallback and label it honestly
+  throw new Error('No lip sync model available or model checkpoint missing. Wav2Lip/SadTalker not installed.');
 }
 
 async function staticImageVideo(imagePath, audioPath, outputPath) {
@@ -387,26 +410,71 @@ async function runLipsyncMuapi(facePath, audioPath, outputPath, apiKey) {
   return outputPath;
 }
 
-async function runQA(db, videoPath, faceRefPath) {
-  // Basic file checks always run — no Python worker needed
+async function runQA(db, videoPath, faceRefPath, { isStaticFallback = false, plan = null } = {}) {
   if (!videoPath || !existsSync(videoPath)) {
     return { valid: false, score: 0, issues: ['Output file missing'], note: 'File not found' };
   }
   const size = statSync(videoPath).size;
   if (size < 50000) {
-    return { valid: false, score: 5, issues: [`Output file too small: ${size} bytes — likely blank or failed render`], note: 'File too small' };
+    return { valid: false, score: 5, issues: [`File too small: ${size} bytes`], note: 'File too small — likely blank or failed render' };
   }
 
-  const script = join(WORKERS_DIR, 'qa_worker.py');
-  if (!existsSync(script)) {
-    return { valid: true, score: 70, issues: [], note: 'QA worker not installed — basic file checks passed' };
-  }
+  const issues = [];
+  let score = 50;
+
+  // Detect static video (all frames identical) by comparing first and last frame
+  let isStatic = isStaticFallback;
   try {
-    const { stdout } = await run(PYTHON, [script, videoPath, faceRefPath || ''], { label: 'qa', timeoutMs: 120_000 });
-    return JSON.parse(stdout.trim().split('\n').filter(l => l.startsWith('{')).pop() || '{}');
-  } catch (e) {
-    return { valid: true, score: 65, issues: [e.message.slice(0, 100)], note: 'QA partial — worker errored' };
+    const frame1 = join(path.dirname(videoPath), '_qa_f1.jpg');
+    const frameN = join(path.dirname(videoPath), '_qa_fn.jpg');
+    await run(FFMPEG, ['-y', '-ss', '0', '-i', videoPath, '-frames:v', '1', '-q:v', '5', frame1], { label: 'qa-f1', timeoutMs: 15000 });
+    await run(FFMPEG, ['-y', '-sseof', '-1', '-i', videoPath, '-frames:v', '1', '-q:v', '5', frameN], { label: 'qa-fn', timeoutMs: 15000 });
+    if (existsSync(frame1) && existsSync(frameN)) {
+      const s1 = statSync(frame1).size, sN = statSync(frameN).size;
+      // If file sizes differ by less than 2% → likely static
+      const diff = Math.abs(s1 - sN) / Math.max(s1, sN, 1);
+      if (diff < 0.02) { isStatic = true; }
+    }
+    try { fs.unlinkSync(frame1); } catch {}
+    try { fs.unlinkSync(frameN); } catch {}
+  } catch {}
+
+  if (isStatic) {
+    score = 20;
+    issues.push('Static image detected — no real motion. This is NOT an AI motion video.');
+  } else {
+    score += 20;
   }
+
+  // Check if scene matches what was requested
+  if (plan?.scene && isStatic) {
+    issues.push(`Scene requested: "${plan.scene}" — but static fallback cannot render scene. Requires a video generation provider.`);
+    score -= 10;
+  }
+  if (plan?.action && isStatic) {
+    issues.push(`Action requested: "${plan.action}" — not achievable with static fallback.`);
+    score -= 10;
+  }
+
+  // Check audio
+  try {
+    const probe = await run('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_streams', videoPath], { label: 'qa-probe', timeoutMs: 10000 });
+    const streams = JSON.parse(probe.stdout || '{}').streams || [];
+    const hasAudio = streams.some(s => s.codec_type === 'audio');
+    const hasVideo = streams.some(s => s.codec_type === 'video');
+    if (!hasAudio) { issues.push('No audio track detected.'); score -= 20; }
+    if (!hasVideo) { issues.push('No video track detected.'); score -= 30; }
+    if (hasAudio && hasVideo) score += 10;
+  } catch {}
+
+  score = Math.max(0, Math.min(100, score));
+  const valid = score >= 20 && size >= 50000;
+
+  const note = isStatic
+    ? 'Static fallback — real motion NOT present. Configure Wav2Lip or a cloud video provider for real AI video.'
+    : 'Motion detected — real video generated.';
+
+  return { valid, score, issues, note, isStatic, level: isStatic ? 1 : 2 };
 }
 
 // ─── Caption generation ───────────────────────────────────────────────────────
@@ -546,6 +614,443 @@ Format: Spoken words only, natural pauses. No stage directions.`;
   }
 }
 
+// ─── Video plan (LLM storyboard) ──────────────────────────────────────────────
+
+async function generateVideoPlan(db, { prompt, scene, action, product, script, durationSec = 30, cameraStyle = 'cinematic', dh = null }) {
+  const geminiKey = settingValue(db, 'GEMINI_API_KEY');
+  const model = geminiModel(db);
+
+  const dhDesc = dh ? (dh.isFictional
+    ? `Fictional AI human: ${JSON.stringify(dh.description || {})}`
+    : `AI Twin of real user: ${dh.name}`) : 'Unknown digital human';
+
+  const systemPrompt = `You are a professional video director AI. Given a prompt, return a structured video production plan as valid JSON only. No markdown, no explanation — just the JSON object.`;
+
+  const userPrompt = `Create a video production plan for:
+Digital Human: ${dhDesc}
+User Prompt: ${prompt || ''}
+Scene: ${scene || 'studio'}
+Action: ${action || 'presenting to camera'}
+Product/Website: ${product || ''}
+Script: ${script || '(generate appropriate script)'}
+Duration: ${durationSec} seconds
+Camera Style: ${cameraStyle}
+
+Return this exact JSON structure:
+{
+  "script": "full spoken script text",
+  "shots": [
+    {"shot": 1, "description": "...", "duration": 5, "camera": "...", "action": "..."}
+  ],
+  "voiceDirection": "tone and delivery notes",
+  "cameraDirection": "overall camera style notes",
+  "motionDirection": "character movement notes",
+  "identityRequirements": "how to preserve digital human identity",
+  "captionStyle": "subtitle style notes",
+  "assetsNeeded": ["list of needed assets"],
+  "providerRecommendation": "which provider level is needed (e.g. level4_full_scene)",
+  "qualityLevelNeeded": 4,
+  "sceneDescription": "full scene description for image/video generation"
+}`;
+
+  if (!geminiKey) {
+    return {
+      script: script || `${prompt}. Welcome to ${product || 'our platform'}.`,
+      shots: [{ shot: 1, description: 'Presenter speaks to camera', duration: durationSec, camera: 'medium shot', action: 'speaking' }],
+      voiceDirection: 'Professional, confident',
+      cameraDirection: cameraStyle,
+      motionDirection: 'Minimal movement, focus on face',
+      identityRequirements: 'Preserve face identity',
+      captionStyle: 'Bold white captions',
+      assetsNeeded: [],
+      providerRecommendation: 'level2_talking_head',
+      qualityLevelNeeded: 2,
+      sceneDescription: scene || 'Professional studio background',
+    };
+  }
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: userPrompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000, responseMimeType: 'application/json' },
+      }),
+    });
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn('[generateVideoPlan:fallback]', e.message);
+    return {
+      script: script || `${prompt}.`,
+      shots: [{ shot: 1, description: 'Presenter speaks to camera', duration: durationSec, camera: 'medium shot', action: 'speaking' }],
+      voiceDirection: 'Professional',
+      cameraDirection: cameraStyle,
+      motionDirection: 'Facing camera',
+      identityRequirements: 'Preserve identity',
+      captionStyle: 'Bold white',
+      assetsNeeded: [],
+      providerRecommendation: 'level2_talking_head',
+      qualityLevelNeeded: 2,
+      sceneDescription: scene || 'Studio',
+    };
+  }
+}
+
+// ─── Video generation providers ───────────────────────────────────────────────
+
+async function generateVideoWithProvider(db, { plan, facePath, audioPath, outputPath, jobId = '', dh = null }) {
+  const provider = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
+  const apiKey = settingValue(db, 'VIDEO_GEN_API_KEY');
+  const level = getActiveQualityLevel(db);
+
+  // Level 4: Full scene providers
+  if (provider === 'runway' && apiKey) {
+    return await generateVideoRunway(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+  if (provider === 'kling' && apiKey) {
+    return await generateVideoKling(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+  if (provider === 'pika' && apiKey) {
+    return await generateVideoPika(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+  if (provider === 'luma' && apiKey) {
+    return await generateVideoLuma(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+  if (provider === 'hailuo' && apiKey) {
+    return await generateVideoHailuo(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+  if (provider === 'replicate' && apiKey) {
+    return await generateVideoReplicate(db, { plan, facePath, audioPath, outputPath, jobId, apiKey });
+  }
+
+  // Level 2: Wav2Lip/SadTalker lip sync
+  if (facePath && existsSync(facePath)) {
+    const lipsyncWorker = existsSync(join(WORKERS_DIR, 'lipsync_worker.py'));
+    if (lipsyncWorker) {
+      try {
+        await runLipsync(db, facePath, audioPath, outputPath, { jobId });
+        if (existsSync(outputPath) && statSync(outputPath).size > 10000) {
+          return { level: 2, label: 'Talking Head', provider: 'local_lipsync' };
+        }
+      } catch (e) {
+        console.warn('[lipsync:failed]', e.message.slice(0, 80));
+      }
+    }
+  }
+
+  // Level 1: Static fallback — clearly labeled
+  if (facePath && existsSync(facePath)) {
+    await staticImageVideo(facePath, audioPath, outputPath);
+    return { level: 1, label: 'Static Fallback', provider: 'ffmpeg_static', warning: true };
+  }
+
+  throw new Error('No face asset and no video provider configured. Cannot generate video.');
+}
+
+async function generateVideoRunway(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Runway ML Gen-3 Alpha — image-to-video or text-to-video
+  // API: https://api.dev.runwayml.com/v1/image_to_video
+  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
+  const mimeType = facePath && facePath.match(/\.png$/i) ? 'image/png' : 'image/jpeg';
+
+  const body = imageBase64 ? {
+    model: 'gen3a_turbo',
+    promptImage: `data:${mimeType};base64,${imageBase64}`,
+    promptText: plan.sceneDescription || plan.motionDirection || 'Person speaking naturally',
+    duration: Math.min(10, plan.shots?.[0]?.duration || 8),
+    ratio: '720:1280',
+  } : {
+    model: 'gen3a_turbo',
+    promptText: plan.sceneDescription || 'Professional presenter',
+    duration: Math.min(10, plan.shots?.[0]?.duration || 8),
+    ratio: '720:1280',
+  };
+
+  const taskRes = await fetch('https://api.dev.runwayml.com/v1/image_to_video', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  if (!task.id) throw new Error(`Runway task creation failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  // Poll for completion (up to 5 min)
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.dev.runwayml.com/v1/tasks/${task.id}`, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'X-Runway-Version': '2024-11-06' },
+    });
+    const t = await poll.json();
+    if (t.status === 'SUCCEEDED' && t.output?.[0]) {
+      const vid = await fetch(t.output[0]);
+      const buf = Buffer.from(await vid.arrayBuffer());
+      fs.writeFileSync(outputPath, buf);
+      return { level: 4, label: 'Full Scene Video', provider: 'runway' };
+    }
+    if (t.status === 'FAILED') throw new Error(`Runway generation failed: ${t.failure || 'unknown'}`);
+  }
+  throw new Error('Runway task timed out after 5 minutes');
+}
+
+async function generateVideoKling(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Kling AI image-to-video / text-to-video
+  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
+
+  const body = {
+    model_name: 'kling-v1',
+    prompt: plan.sceneDescription || plan.motionDirection || 'Person speaking',
+    ...(imageBase64 ? { image: imageBase64 } : {}),
+    duration: '5',
+    aspect_ratio: '9:16',
+  };
+
+  const taskRes = await fetch('https://api.klingai.com/v1/videos/image2video', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  const taskId = task.data?.task_id;
+  if (!taskId) throw new Error(`Kling task creation failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.klingai.com/v1/videos/image2video/${taskId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const t = await poll.json();
+    const status = t.data?.task_status;
+    if (status === 'succeed') {
+      const url = t.data?.task_result?.videos?.[0]?.url;
+      if (url) {
+        const vid = await fetch(url);
+        fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
+        return { level: 4, label: 'Full Scene Video', provider: 'kling' };
+      }
+    }
+    if (status === 'failed') throw new Error(`Kling generation failed: ${t.data?.task_status_msg || 'unknown'}`);
+  }
+  throw new Error('Kling task timed out');
+}
+
+async function generateVideoPika(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Pika Labs 2.2
+  const prompt = plan.sceneDescription || plan.motionDirection || 'Person speaking naturally';
+  const body = {
+    promptText: prompt,
+    ...(facePath && existsSync(facePath) ? { image: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}` } : {}),
+    options: { aspectRatio: '9:16', frameRate: 24, duration: Math.min(10, Math.ceil((plan.shots?.[0]?.duration || 6))) },
+  };
+
+  const taskRes = await fetch('https://api.pika.art/v2/generate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  const taskId = task.id;
+  if (!taskId) throw new Error(`Pika task failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.pika.art/v2/generations/${taskId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const t = await poll.json();
+    if (t.status === 'completed' && t.video?.url) {
+      const vid = await fetch(t.video.url);
+      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
+      return { level: 4, label: 'Full Scene Video', provider: 'pika' };
+    }
+    if (t.status === 'failed') throw new Error(`Pika failed: ${t.error || 'unknown'}`);
+  }
+  throw new Error('Pika task timed out');
+}
+
+async function generateVideoLuma(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Luma Labs Dream Machine
+  const prompt = plan.sceneDescription || 'Person speaking on camera';
+  const body = {
+    prompt,
+    aspect_ratio: '9:16',
+    ...(facePath && existsSync(facePath) ? {
+      keyframes: { frame0: { type: 'image', url: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}` } }
+    } : {}),
+  };
+
+  const taskRes = await fetch('https://api.lumalabs.ai/dream-machine/v1/generations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  const taskId = task.id;
+  if (!taskId) throw new Error(`Luma task failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.lumalabs.ai/dream-machine/v1/generations/${taskId}`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    });
+    const t = await poll.json();
+    if (t.state === 'completed' && t.assets?.video) {
+      const vid = await fetch(t.assets.video);
+      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
+      return { level: 4, label: 'Full Scene Video', provider: 'luma' };
+    }
+    if (t.state === 'failed') throw new Error(`Luma failed: ${t.failure_reason || 'unknown'}`);
+  }
+  throw new Error('Luma task timed out');
+}
+
+async function generateVideoHailuo(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Hailuo AI / MiniMax video-01
+  const prompt = plan.sceneDescription || 'Person speaking';
+  const body = {
+    model: 'video-01',
+    prompt,
+    ...(facePath && existsSync(facePath) ? {
+      first_frame_image: `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(facePath)).toString('base64')}`,
+    } : {}),
+  };
+
+  const taskRes = await fetch('https://api.minimax.io/v1/video_generation', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  const taskId = task.task_id;
+  if (!taskId) throw new Error(`Hailuo task failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.minimax.io/v1/query/video_generation?task_id=${taskId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const t = await poll.json();
+    if (t.status === 'Success' && t.file_id) {
+      const dl = await fetch(`https://api.minimax.io/v1/files/retrieve?file_id=${t.file_id}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const info = await dl.json();
+      if (info.file?.download_url) {
+        const vid = await fetch(info.file.download_url);
+        fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
+        return { level: 4, label: 'Full Scene Video', provider: 'hailuo' };
+      }
+    }
+    if (t.status === 'Fail') throw new Error(`Hailuo failed: ${t.message || 'unknown'}`);
+  }
+  throw new Error('Hailuo task timed out');
+}
+
+async function generateVideoReplicate(db, { plan, facePath, audioPath, outputPath, jobId, apiKey }) {
+  // Replicate — use minimax/video-01 or any i2v model
+  const imageBase64 = facePath && existsSync(facePath) ? Buffer.from(fs.readFileSync(facePath)).toString('base64') : null;
+  const body = {
+    version: 'minimax/video-01',
+    input: {
+      prompt: plan.sceneDescription || plan.motionDirection || 'Person speaking',
+      ...(imageBase64 ? { first_frame_image: `data:image/jpeg;base64,${imageBase64}` } : {}),
+    },
+  };
+
+  const taskRes = await fetch('https://api.replicate.com/v1/predictions', {
+    method: 'POST',
+    headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const task = await taskRes.json();
+  const taskId = task.id;
+  if (!taskId) throw new Error(`Replicate task failed: ${JSON.stringify(task).slice(0, 200)}`);
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const poll = await fetch(`https://api.replicate.com/v1/predictions/${taskId}`, {
+      headers: { Authorization: `Token ${apiKey}` },
+    });
+    const t = await poll.json();
+    if (t.status === 'succeeded' && t.output) {
+      const url = Array.isArray(t.output) ? t.output[0] : t.output;
+      const vid = await fetch(url);
+      fs.writeFileSync(outputPath, Buffer.from(await vid.arrayBuffer()));
+      return { level: 4, label: 'Full Scene Video', provider: 'replicate' };
+    }
+    if (t.status === 'failed') throw new Error(`Replicate failed: ${t.error || 'unknown'}`);
+  }
+  throw new Error('Replicate task timed out');
+}
+
+// Generate a face image for a synthetic human using image gen provider
+async function generateSyntheticFace(db, { appearance, gender, ageRange, style }) {
+  const provider = settingValue(db, 'IMAGE_GEN_PROVIDER') || 'none';
+  const apiKey = settingValue(db, 'IMAGE_GEN_API_KEY');
+
+  if (provider === 'none' || !apiKey) return null;
+
+  const prompt = `Portrait photo, professional headshot. ${appearance}. ${gender ? `Gender: ${gender}.` : ''} ${ageRange ? `Age: ${ageRange}.` : ''} ${style || ''}. Ultra realistic, 4K, good lighting, neutral background.`;
+
+  if (provider === 'dalle') {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1024x1024', quality: 'standard', response_format: 'b64_json' }),
+    });
+    const data = await res.json();
+    const b64 = data.data?.[0]?.b64_json;
+    if (b64) return Buffer.from(b64, 'base64');
+  }
+
+  if (provider === 'stability') {
+    const res = await fetch('https://api.stability.ai/v2beta/stable-image/generate/ultra', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'image/*' },
+      body: (() => { const f = new FormData(); f.append('prompt', prompt); f.append('output_format', 'jpeg'); return f; })(),
+    });
+    if (res.ok) return Buffer.from(await res.arrayBuffer());
+  }
+
+  if (provider === 'fal') {
+    const res = await fetch('https://fal.run/fal-ai/flux/schnell', {
+      method: 'POST',
+      headers: { Authorization: `Key ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, image_size: 'portrait_4_3', num_images: 1 }),
+    });
+    const data = await res.json();
+    const url = data.images?.[0]?.url;
+    if (url) { const r = await fetch(url); return Buffer.from(await r.arrayBuffer()); }
+  }
+
+  if (provider === 'replicate') {
+    const res = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: 'black-forest-labs/flux-schnell', input: { prompt, aspect_ratio: '1:1' } }),
+    });
+    const task = await res.json();
+    const taskId = task.id;
+    if (taskId) {
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const poll = await fetch(`https://api.replicate.com/v1/predictions/${taskId}`, { headers: { Authorization: `Token ${apiKey}` } });
+        const t = await poll.json();
+        if (t.status === 'succeeded' && t.output) {
+          const url = Array.isArray(t.output) ? t.output[0] : t.output;
+          const r = await fetch(url); return Buffer.from(await r.arrayBuffer());
+        }
+        if (t.status === 'failed') break;
+      }
+    }
+  }
+
+  return null;
+}
+
 // ─── Main video generation pipeline ──────────────────────────────────────────
 
 async function processVideoJob(jobId) {
@@ -561,75 +1066,106 @@ async function processVideoJob(jobId) {
     return;
   }
 
+  if (dh.status === 'needs_face' || dh.status === 'needs_image_provider') {
+    const hint = dh.isFictional
+      ? 'This synthetic human needs a face image. Configure an image generation provider in Settings, or upload a photo manually.'
+      : 'This AI Twin has no face asset. Complete the camera capture first.';
+    updateJob(jobId, { status: 'failed', error: hint, code: 'NO_FACE_ASSET', stage: 'failed', progress: 100 });
+    return;
+  }
+
   const tmpDir  = join(STORAGE_DIR, 'temp', jobId);
   mkdirSync(tmpDir, { recursive: true });
 
   const wavPath    = join(tmpDir, 'speech.wav');
-  const lipsyncOut = join(tmpDir, 'lipsync.mp4');
+  const videoOut   = join(tmpDir, 'generated.mp4');  // raw provider output
   const assPath    = join(tmpDir, 'captions.ass');
   const finalOut   = join(STORAGE_DIR, 'videos', `${jobId}.mp4`);
   const thumbOut   = join(STORAGE_DIR, 'thumbnails', `${jobId}.jpg`);
 
   try {
-    // Step 1: Script generation if needed
-    let script = (job.script || '').trim();
+    const activeLevel = getActiveQualityLevel(db);
+
+    // Step 1: Generate video plan via LLM
+    updateJob(jobId, { stage: 'planning', progress: 5 });
+    const plan = await generateVideoPlan(db, {
+      prompt: job.prompt || '',
+      scene: job.scene || '',
+      action: job.action || '',
+      product: job.product || '',
+      script: (job.script || '').trim(),
+      durationSec: job.durationSec || 30,
+      cameraStyle: job.cameraStyle || 'cinematic',
+      dh,
+    });
+    updateJob(jobId, { plan });
+
+    // Step 2: Script
+    let script = (job.script || '').trim() || plan.script || '';
     if (!script && job.prompt) {
       updateJob(jobId, { stage: 'writing script', progress: 10 });
       script = await generateScript(db, job.prompt, job.mode || 'talking_head', {
         durationSec: job.durationSec || 30,
         tone: job.tone || 'professional',
       });
-      updateJob(jobId, { script });
     }
     if (!script) throw new Error('No script provided and AI script generation failed.');
+    updateJob(jobId, { script });
 
-    // Step 2: TTS — generate speech audio
+    // Step 3: TTS
     updateJob(jobId, { stage: 'generating voice', progress: 20 });
-    await runTTS(db, script, wavPath, {
-      voiceId: job.voiceId || dh.defaultVoice || '',
-    });
+    await runTTS(db, script, wavPath, { voiceId: job.voiceId || dh.defaultVoice || '' });
     if (!existsSync(wavPath)) throw new Error('TTS failed to produce audio output.');
 
-    // Step 3: Lip sync — animate face
-    updateJob(jobId, { stage: 'lip sync', progress: 40 });
+    // Step 4: Video generation (provider-based)
+    updateJob(jobId, { stage: 'generating video', progress: 35 });
     const facePath = dh.facePath && existsSync(dh.facePath) ? dh.facePath : null;
-    if (!facePath) throw new Error('Digital Human has no face asset. Please upload a face photo or video first.');
-    const lipsyncProvider = settingValue(db, 'LIPSYNC_PROVIDER') || 'wav2lip';
-    const lipsyncWorkerExists = existsSync(join(WORKERS_DIR, 'lipsync_worker.py'));
-    await runLipsync(db, facePath, wavPath, lipsyncOut, { jobId });
-    if (!existsSync(lipsyncOut) || statSync(lipsyncOut).size < 1024) throw new Error('Lip sync produced no output.');
-    // If we had to use static fallback, record a warning on the job
-    if (!lipsyncWorkerExists || lipsyncProvider === 'static') {
-      updateJob(jobId, { warning: 'Lip sync model not installed — video uses static face image with audio. Install Wav2Lip for real mouth movement.' });
+    if (!facePath) {
+      const hint = dh.isFictional
+        ? 'Synthetic human has no face asset. Configure IMAGE_GEN_PROVIDER in Settings or upload a face photo.'
+        : 'AI Twin has no face asset. Complete the camera capture wizard first.';
+      throw Object.assign(new Error(hint), { status: 400, code: 'NO_FACE_ASSET' });
     }
 
-    // Step 4: Captions
-    updateJob(jobId, { stage: 'captions', progress: 65 });
-    await generateCaptions(wavPath, script, assPath, {
-      W: job.outputW || 1080,
-      H: job.outputH || 1920,
+    const providerResult = await generateVideoWithProvider(db, {
+      plan, facePath, audioPath: wavPath, outputPath: videoOut, jobId, dh,
     });
 
-    // Step 5: Final render
+    if (!existsSync(videoOut) || statSync(videoOut).size < 1024) {
+      throw new Error('Video generation produced no output.');
+    }
+
+    // Record quality level on job
+    const isStaticFallback = providerResult.level === 1;
+    updateJob(jobId, {
+      qualityLevel: providerResult.level,
+      qualityLabel: providerResult.label,
+      videoProvider: providerResult.provider,
+      ...(isStaticFallback ? { staticFallbackWarning: 'This is a static image + audio — NOT real AI video. Configure a video provider in Settings for real motion.' } : {}),
+    });
+
+    // Step 5: Captions
+    updateJob(jobId, { stage: 'captions', progress: 65 });
+    await generateCaptions(wavPath, script, assPath, { W: job.outputW || 1080, H: job.outputH || 1920 });
+
+    // Step 6: Final render (overlay audio + captions on provider video)
     updateJob(jobId, { stage: 'rendering', progress: 75 });
-    await renderFinalVideo(lipsyncOut, wavPath, assPath, finalOut, {
-      W: job.outputW || 1080,
-      H: job.outputH || 1920,
-      fps: job.fps || 30,
+    await renderFinalVideo(videoOut, wavPath, assPath, finalOut, {
+      W: job.outputW || 1080, H: job.outputH || 1920, fps: job.fps || 30,
     });
     if (!existsSync(finalOut) || statSync(finalOut).size < 1024) throw new Error('Final render produced no output.');
 
-    // Step 6: Thumbnail
+    // Step 7: Thumbnail
     updateJob(jobId, { stage: 'thumbnail', progress: 88 });
     try {
       await run(FFMPEG, ['-y', '-ss', '1', '-i', finalOut, '-frames:v', '1', '-vf', 'scale=540:960', '-q:v', '3', thumbOut], { label: 'thumb', timeoutMs: 30_000 });
     } catch {}
 
-    // Step 7: QA
+    // Step 8: QA — detect static frames
     updateJob(jobId, { stage: 'quality check', progress: 93 });
-    const qa = await runQA(db, finalOut, facePath || '');
+    const qa = await runQA(db, finalOut, facePath || '', { isStaticFallback, plan });
 
-    // Step 8: Deduct credits
+    // Step 9: Credits
     const db2 = loadDb();
     const userIdx = db2.users.findIndex(u => u.id === job.userId);
     const cost = CREDIT_COSTS[job.mode] || CREDIT_COSTS.talking_head;
@@ -659,9 +1195,8 @@ async function processVideoJob(jobId) {
     // eslint-disable-next-line no-control-regex
     const msg = String(error.message || error).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').slice(0, 500);
     console.error('[job:failed]', { jobId, error: msg });
-    updateJob(jobId, { status: 'failed', stage: 'failed', progress: 100, error: msg });
+    updateJob(jobId, { status: 'failed', stage: 'failed', progress: 100, error: msg, code: error.code || '' });
   } finally {
-    // Clean up temp
     try {
       for (const f of fs.readdirSync(tmpDir)) try { fs.unlinkSync(join(tmpDir, f)); } catch {}
       fs.rmdirSync(tmpDir);
@@ -752,7 +1287,12 @@ async function getWorkerHealth(db) {
 
   const mode = settingValue(db, 'AI_RUNTIME_MODE') || AI_RUNTIME;
   const allOk = checks.ffmpeg?.ok && checks.python?.ok;
-  return { mode, ready: allOk, checks, queueDepth: jobQueue.length, activeRenders };
+  const result = { mode, ready: allOk, checks, queueDepth: jobQueue.length, activeRenders };
+  result.activeQualityLevel = getActiveQualityLevel(db);
+  result.qualityLevels = QUALITY_LEVELS;
+  result.videoProvider = settingValue(db, 'VIDEO_GEN_PROVIDER') || 'static';
+  result.imageProvider = settingValue(db, 'IMAGE_GEN_PROVIDER') || 'none';
+  return result;
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -1041,7 +1581,7 @@ async function handleAPI(req, res, pathname) {
   if (pathname === '/api/digital-humans/create-fictional' && method === 'POST') {
     const user = requireUser(req, db);
     const body = await readJson(req);
-    const { gender, ageRange, appearance, style, voiceStyle, personality, useCase } = body;
+    const { gender, ageRange, appearance, style, voiceStyle, personality, useCase, archetype } = body;
     if (!appearance) return json(res, 400, { error: 'Appearance description required' });
     const nameMap = {
       male: ['Alex', 'Jordan', 'Marcus', 'Ryan', 'James'],
@@ -1058,16 +1598,36 @@ async function handleAPI(req, res, pathname) {
       'american': 'en_US-amy-medium',
     };
     const dhId = randomUUID();
+
+    // Attempt to auto-generate a face image if an image provider is configured
+    let facePath = null;
+    let status = 'needs_image_provider';
+    const imgProvider = settingValue(db, 'IMAGE_GEN_PROVIDER') || 'none';
+    if (imgProvider !== 'none' && settingValue(db, 'IMAGE_GEN_API_KEY')) {
+      try {
+        const buf = await generateSyntheticFace(db, { appearance, gender, ageRange, style });
+        if (buf && buf.length > 1000) {
+          mkdirSync(join(STORAGE_DIR, 'faces'), { recursive: true });
+          facePath = join(STORAGE_DIR, 'faces', `${dhId}.jpg`);
+          writeFileSync(facePath, buf);
+          status = 'ready';
+        }
+      } catch (e) {
+        console.warn('[create-fictional:face-gen-failed]', e.message.slice(0, 120));
+      }
+    }
+
     const dh = {
       id: dhId, userId: user.id, name: dhName, type: 'fictional',
-      // needs_face = no face asset yet; upload a photo to make it ready
-      status: 'needs_face',
+      // needs_image_provider = no image provider configured; configure one or upload a photo manually
+      status,
       consentType: 'synthetic', consentConfirmed: true,
       consentNote: 'Fictional AI-generated identity. No real person cloned.',
       consentVerified: true, consentAt: new Date().toISOString(),
       isFictional: true,
-      description: { gender, ageRange, appearance, style, voiceStyle, personality, useCase },
-      facePath: null, faceVideoPath: null,
+      archetype: archetype || 'custom',
+      description: { gender, ageRange, appearance, style, voiceStyle, personality, useCase, archetype: archetype || 'custom' },
+      facePath, faceVideoPath: null,
       defaultVoice: voiceMap[voiceStyle] || 'en_US-amy-medium',
       personality: {}, preferredOutfits: [], preferredScenes: [],
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -1207,6 +1767,16 @@ async function handleAPI(req, res, pathname) {
     return json(res, 200, { ok: true, digitalHuman: dh });
   }
 
+  // ── Video plan (AI storyboard) ────────────────────────────────────────────
+  if (pathname === '/api/videos/plan' && method === 'POST') {
+    const user = requireUser(req, db);
+    const body = await readJson(req);
+    const { prompt, scene, action, product, script, durationSec, cameraStyle, digitalHumanId } = body;
+    const dh = db.digitalHumans.find(h => h.id === digitalHumanId && (h.userId === user.id || user.role === 'admin'));
+    const plan = await generateVideoPlan(db, { prompt, scene, action, product, script, durationSec: durationSec || 30, cameraStyle: cameraStyle || 'cinematic', dh });
+    return json(res, 200, { plan, activeLevel: getActiveQualityLevel(db), qualityLevels: QUALITY_LEVELS });
+  }
+
   // ── Video generation ──────────────────────────────────────────────────────
   if (pathname === '/api/videos/generate' && method === 'POST') {
     const user = requireUser(req, db);
@@ -1216,9 +1786,11 @@ async function handleAPI(req, res, pathname) {
     const dh = db.digitalHumans.find(h => h.id === body.digitalHumanId && (h.userId === user.id || user.role === 'admin'));
     if (!dh) throw Object.assign(new Error('Digital Human not found.'), { status: 404 });
     if (!dh.facePath || !existsSync(dh.facePath)) {
-      const hint = dh.isFictional
-        ? 'This is a fictional human with no face asset. Upload a face photo on the Digital Human page first.'
-        : 'Digital Human needs a face asset. Upload a photo or video first.';
+      const hint = dh.status === 'needs_image_provider'
+        ? 'This synthetic human has no face image. Configure an image generation provider (DALL-E, Stability AI, or FAL) in Settings, or upload a face photo manually on the Digital Human page.'
+        : dh.isFictional
+          ? 'This fictional human has no face asset. Upload a face photo on the Digital Human page.'
+          : 'This AI Twin has no face asset. Complete the camera capture wizard first.';
       throw Object.assign(new Error(hint), { status: 400, code: 'NO_FACE_ASSET' });
     }
 
@@ -1235,6 +1807,10 @@ async function handleAPI(req, res, pathname) {
       mode,
       script: (body.script || '').trim(),
       prompt: (body.prompt || '').trim(),
+      scene: (body.scene || '').trim(),
+      action: (body.action || '').trim(),
+      product: (body.product || '').trim(),
+      cameraStyle: body.cameraStyle || 'cinematic',
       voiceId: body.voiceId || dh.defaultVoice || '',
       tone: body.tone || 'professional',
       durationSec: Number(body.durationSec || 30),
